@@ -1,8 +1,8 @@
+import importlib.util
 import logging
 import os
 import pwd
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -27,20 +27,6 @@ def _get_project_dir() -> Path | None:
 def _get_username() -> str:
     """Return the real (non-root) username."""
     return os.environ.get("SUDO_USER") or os.getlogin()
-
-
-def _find_bin(name: str) -> Path | None:
-    """Find a binary, checking both PATH and the invoking user's home."""
-    found = shutil.which(name)
-    if found:
-        return Path(found)
-    # Under sudo, the user's ~/.local/bin may not be on root's PATH
-    username = _get_username()
-    home = Path(pwd.getpwnam(username).pw_dir)
-    candidate = home / ".local/bin" / name
-    if candidate.exists():
-        return candidate
-    return None
 
 
 def _user_home() -> Path:
@@ -69,22 +55,15 @@ def config_path(systemd_dir: Path = _SYSTEMD_DIR) -> Path:
     return Path(found.group(1)) if found else default_config_path()
 
 
-def _get_pvpi() -> Path:
-    """Find the pvpi binary."""
-    pvpi = _find_bin("pvpi")
-    if pvpi:
-        return pvpi
-    _logger.error("Could not find pvpi binary on PATH")
-    sys.exit(1)
+def _venv_pvpi() -> Path:
+    """The `pvpi` of the environment this runs in (a cloned repo's .venv, or wherever the
+    package is installed): what the services run, with no `uv run` in front of it."""
+    return Path(sys.executable).parent / "pvpi"
 
 
-def _get_uv() -> Path:
-    """Find the uv binary."""
-    uv = _find_bin("uv")
-    if uv:
-        return uv
-    _logger.error("Could not find uv binary on PATH")
-    sys.exit(1)
+def dashboard_installed() -> bool:
+    """Whether the dashboard's extra (pvpi[dashboard]: streamlit) is installed."""
+    return importlib.util.find_spec("streamlit") is not None
 
 
 def _render_service(name: str, user: str, exec_start: str) -> str:
@@ -190,26 +169,28 @@ def install_systemd(config_path: Path | None = None) -> None:
         _save_default_config(config_path, user)
 
     config_flag = f" --config {config_path}" if config_path else ""
-
+    pvpi = _venv_pvpi()
+    _logger.info("The services run %s", pvpi)
     if project_dir:
-        uv = _get_uv()
-        _logger.info("Detected cloned repo at %s — using uv run", project_dir)
+        _logger.info("From the cloned repo at %s: after a git pull, run 'uv sync' then 'pvpi restart'", project_dir)
 
-        def make_exec_start(subcmd: str) -> str:
-            return f"{uv} run --project {project_dir} pvpi {subcmd}{config_flag}"
-    else:
-        pvpi = _get_pvpi()
-        _logger.info("Installed package detected — using %s", pvpi)
+    def make_exec_start(subcmd: str) -> str:
+        return f"{pvpi} {subcmd}{config_flag}"
 
-        def make_exec_start(subcmd: str) -> str:
-            return f"{pvpi} {subcmd}{config_flag}"
+    services = list(SERVICES)
+    if not dashboard_installed():
+        services.remove("pvpi_dashboard.service")
+        _logger.info(
+            "The dashboard isn't installed, so its service is left out: add it with "
+            "'uv sync --extra dashboard' (or pip install 'pvpi[dashboard]'), then run pvpi install again"
+        )
+        _remove_service("pvpi_dashboard.service")
 
     _logger.info("Installing systemd services for user '%s'", user)
     target_dir = _SYSTEMD_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    # In your systemd.py loop:
-    for name in _SERVICES:
+    for name in services:
         if name == "pvpi_uart.service":
             exec_start = make_exec_start("uart-proxy")
         elif name == "pvpi_manager.service":
@@ -223,53 +204,56 @@ def install_systemd(config_path: Path | None = None) -> None:
 
     # Start systemd services
     subprocess.run(["systemctl", "daemon-reload"], check=True)
-    for name in _SERVICES:
+    for name in services:
         subprocess.run(["systemctl", "enable", name], check=True)
         subprocess.run(["systemctl", "restart", name], check=True)
         _logger.info("%s installed & started", name)
     _logger.info("Installation complete!")
 
 
+def _remove_service(name: str) -> None:
+    """Stop, disable and remove an installed service (nothing if it isn't installed)."""
+    unit = _SYSTEMD_DIR / name
+    if not unit.exists():
+        return
+    subprocess.run(["systemctl", "disable", "--now", name], check=False)
+    unit.unlink()
+    _logger.info("%s uninstalled", name)
+
+
+def _installed_services() -> list[str]:
+    return [name for name in SERVICES if (_SYSTEMD_DIR / name).exists()]
+
+
 def uninstall_systemd() -> None:
     _check_run_requirements()
-    target_dir = Path("/etc/systemd/system")
-    for name in _SERVICES:
-        subprocess.run(["systemctl", "disable", name], check=True)
-        dst = target_dir / name
-        os.remove(dst)
-        _logger.info("%s uninstalled", name)
+    for name in SERVICES:
+        _remove_service(name)
     subprocess.run(["systemctl", "daemon-reload"], check=True)
     _logger.info("Uninstall complete!")
 
 
 def restart_systemd() -> None:
     _check_run_requirements()
-    target_dir = Path("/etc/systemd/system")
-    for name in _SERVICES:
+    for name in _installed_services():
         subprocess.run(["systemctl", "restart", name], check=True)
     _logger.info("Restart complete!")
 
 
 def run_dashboard(config_path: str | None = None) -> None:
-    _check_run_requirements()
-    uv = _get_uv()
-    project_dir = _get_project_dir()
-    
+    """Run the dashboard in this process (it becomes streamlit): it only reads the CSV logs
+    and asks the UART proxy, so it needs neither root nor a second environment."""
+    if not dashboard_installed():
+        _logger.error("The dashboard isn't installed: uv sync --extra dashboard (or pip install 'pvpi[dashboard]')")
+        sys.exit(1)
     dashboard_script = Path(__file__).parent / "services" / "dashboard.py"
-    
-    env = os.environ.copy()
-    env.pop("VIRTUAL_ENV", None)
-    
     if config_path:
-        env["PVPI_CONFIG_PATH"] = str(Path(config_path).resolve())
-
+        os.environ["PVPI_CONFIG_PATH"] = str(Path(config_path).resolve())
     cmd = [
-        str(uv), "run", "--project", str(project_dir),
-        "streamlit", "run", str(dashboard_script),
+        sys.executable, "-m", "streamlit", "run", str(dashboard_script),
         "--server.headless", "true",
         "--server.address", "0.0.0.0",
-        "--server.port", "8501"
-    ]
-    
+        "--server.port", "8501",
+    ]  # fmt: skip
     _logger.info("Launching Streamlit dashboard...")
-    subprocess.run(cmd, env=env, check=True)
+    os.execv(sys.executable, cmd)
