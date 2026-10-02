@@ -21,6 +21,7 @@ dependencies = [
 ]
 [dependency-groups]
 dev = [
+    "pytest>=8",
 ]
 
 [tool.uv]
