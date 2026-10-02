@@ -20,6 +20,9 @@ class PvPiConfig(BaseSettings, extra="forbid"):
     startup_delay: int = Field(20, description="Seconds delay after service start before proceeding", ge=0)  # secs
 
     low_bat_volt: float = Field(12.9, description="Voltage at which to shutdown the Raspberry Pi", ge=0)  # volts
+    low_bat_readings: int = Field(
+        3, description="Low battery readings in a row (one every 10 s) before shutting down", ge=1
+    )
     wake_up_volt: float = Field(13.2, description="Voltage at which power supply will be turned on", ge=0)  # volts
 
     # Turning the power supply off on shutdown
