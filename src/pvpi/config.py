@@ -5,7 +5,7 @@ from datetime import time
 from pathlib import Path
 
 from platformdirs import user_data_dir
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import (
     BaseSettings,
 )
@@ -23,11 +23,15 @@ class PvPiConfig(BaseSettings, extra="forbid"):
     low_bat_readings: int = Field(
         3, description="Low battery readings in a row (one every 10 s) before shutting down", ge=1
     )
-    wake_up_volt: float = Field(13.2, description="Voltage at which power supply will be turned on", ge=0)  # volts
+    wake_up_volt: float = Field(
+        13.2, description="Voltage at which power supply will be turned on (11.5 to 14.4)", ge=11.5, le=14.4
+    )  # volts
 
     # Turning the power supply off on shutdown
     power_off_on_shutdown: bool = Field(True, description="Turn off power supply on shutdown")
-    power_off_delay: int = Field(20, description="Seconds delay after shutdown to turn off power supply", ge=0)
+    power_off_delay: int = Field(
+        20, description="Seconds delay after shutdown to turn off power supply (1 to 60)", ge=1, le=60
+    )
 
     # Wakeup & Shutdown times
     schedule_time: bool = Field(False, description="Enable scheduled shutdown and wakeup")
@@ -39,11 +43,11 @@ class PvPiConfig(BaseSettings, extra="forbid"):
     data_log_path: Path = Field(
         default_factory=lambda: Path(user_data_dir("pvpi")), description="Pv Pi CSV log file path"
     )
-    keep_for_days: int = Field(7, description="Num of days logging to retain")
+    keep_for_days: int = Field(7, description="Num of days logging to retain", ge=1)
 
     # Watchdog
     enable_watchdog: bool = Field(False, description="Enable power watchdog")
-    watchdog_period_mins: int = Field(2, description="Watchdog inspection interval in minutes", gt=0)
+    watchdog_period_mins: int = Field(2, description="Watchdog inspection interval in minutes (1 to 60)", ge=1, le=60)
 
     # Clocks
     time_pi2mcu: bool = Field(False, description="Set Pv Pi's MCU clock to match Raspberry Pi's clock on boot")
@@ -51,6 +55,13 @@ class PvPiConfig(BaseSettings, extra="forbid"):
 
     # Dashboard
     full_dashboard: bool = Field(True, description="Plot out historical data as well as live stats")
+
+    @model_validator(mode="after")
+    def _wakes_above_shutdown(self):
+        # Waking at or below the shutdown voltage would shut the Pi down again as it starts.
+        if self.wake_up_volt <= self.low_bat_volt:
+            raise ValueError(f"wake_up_volt ({self.wake_up_volt}) must be above low_bat_volt ({self.low_bat_volt})")
+        return self
 
     @classmethod
     def from_file(cls, path: str | None = None):
