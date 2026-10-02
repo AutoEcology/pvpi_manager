@@ -36,11 +36,14 @@ For the Raspberry Pi and other SBC using the 40pin header the PV PI will use the
 - Raspberry Pi (standard models): `/dev/ttyAMA0`
 - Raspberry Pi Zero variants: `/dev/ttyS0`
 
+On a Raspberry Pi 5 the same can be done by adding `dtparam=uart0=on` to `/boot/firmware/config.txt` and rebooting, which gives `/dev/ttyAMA0` on GPIO 14/15.
+On a Raspberry Pi 3 or 4, `/dev/ttyAMA0` is used by Bluetooth unless `dtoverlay=disable-bt` is in `/boot/firmware/config.txt`; otherwise set `uart_port` to `/dev/ttyS0`.
+
 You can override the port by setting `uart_port` in the `config.json` file.
 
 ### Disable Sudo Password
 As of version 6.2 of Raspberry Pi OS, passwordless sudo is now disabled by default.
-The PV Pi manager requires sudo for shutdown commands, which will currently fail if you don't enable passwordless sudo.
+The PV Pi manager requires sudo for shutdown commands (and for setting the Pi's clock when `time_mcu2pi` is on), which will currently fail if you don't enable passwordless sudo.
 1. `sudo raspi-config`
 2. Select `1 System Options`
 3. Select `S10 Admin Password`
@@ -52,8 +55,17 @@ Clone the repo:
 ```shell
 git clone https://github.com/LukeDitria/pvpi_manager.git
 cd pvpi_manager
-uv sync
+uv sync --extra dashboard
 uv run pvpi
+```
+
+The web dashboard is optional. Leave out `--extra dashboard` (`uv sync`) for a much smaller install (about 25 MB instead of about 370 MB, and no numpy): everything else works the same, and `pvpi install` then leaves the dashboard service out.
+
+To update later:
+```shell
+git pull
+uv sync --extra dashboard  # or plain uv sync, as installed
+uv run pvpi restart
 ```
 
 # Quick-start
@@ -73,12 +85,12 @@ PV Pi manager comes with an `install` command to setup an automatic PV Pi Manage
 uv run pvpi install
 ```
 
-The installation places two system services that will run automatically upon every boot. There is:
+The installation places up to three system services that will run automatically upon every boot. They run the `pvpi` of the environment `install` was run from (e.g. `pvpi_manager/.venv/bin/pvpi`), with nothing in front of it. There is:
 - The UART Proxy is a service that manages communications to the PV PI for multiple applications attempting to do so at once. It holds onto the serial connection to the PV Pi and proxies requests over network sockets.
-- The Manager services is a simple looping script that communicates, via the UART proxy, to the PV Pi and logs metrics.
+- The Manager services is a simple looping script that communicates, via the UART proxy, to the PV Pi and logs metrics. Every 10 seconds it checks the battery, and it shuts the Pi down once `low_bat_readings` readings in a row (3 by default) are at or below `low_bat_volt`, so a short dip under load doesn't power the device off. A reading that fails is retried on the next pass; the service only stops (and systemd starts it again) after 5 failed passes in a row.
 - The Dashboard is a simple Streamlit based dashboard to display live PV Pi statistics
 as well as the historical data logs hosted on port 8501. Historical data log requires
-log_pvpi_stats to be enabled
+log_pvpi_stats to be enabled. It's only installed when the dashboard extra is (`uv sync --extra dashboard`).
 
 This is an optional installation. Each service can be run directly via the CLI, and neither are required to run in order to use the PV Pi SDK. The serve as examples on which to base your own work.
 
@@ -200,7 +212,12 @@ journalctl -u pvpi_dashboard.service -f
 (i) `journalctl` is a Linux command-line tool for viewing and managing logs from `systemd`. Logs can be filtered by process and time. [Learn more](https://www.digitalocean.com/community/tutorials/how-to-use-journalctl-to-view-and-manipulate-systemd-logs).
 
 # Updating the PV Pi Manager config
-When you install the PV Pi Manager service a default config.json file will be created in the pvpi_manager directory. Subsequent restarts of the PV Pi Manager services will load configuration parameters from this config.json.
+When you install the PV Pi Manager service a default config.json file will be created: in the pvpi_manager directory for a cloned repo, or in `~/.config/pvpi/` for a package installed with pip (`pvpi install --config <file>` picks another place). Subsequent restarts of the PV Pi Manager services will load configuration parameters from this config.json. To see which file the installed services use:
+```shell
+uv run pvpi config-path
+```
+
+Settings the PV Pi wouldn't accept are refused when the config is loaded, e.g. `wake_up_volt` must be between 11.5 and 14.4 V and above `low_bat_volt`, and `power_off_delay` between 1 and 60 seconds.
 
 You can change the behaviour of the PV Pi Manager services by editing and saving this file and restarting the PV Pi Manager services.
 ```shell
@@ -209,24 +226,26 @@ uv run pvpi restart
 
 # Adding the pvpi client to your own project!
 You can use uv or pip to add the pvpi client to your Python project.
-You'll still need to install the PV Pi Manager from git as above at this stage.
-After this you can:
 ```shell
 uv add pvpi
 ```
 OR
 ```shell
-pip install pvpi
+pip install pvpi            # pip install "pvpi[dashboard]" for the dashboard too
 ```
+
+A pip-installed `pvpi install` sets up the services from that environment too.
 
 ## Creating your own client node
 
 ```python
 from pvpi import PvPiClient
 
-client = PvPiClient()
+client = PvPiClient()  # PvPiClient(timeout_ms=3000) to wait less for each answer
 print(client.get_alive())
 ```
+
+`PvPiClient()` goes through the UART proxy when its service is running, and opens the serial port itself when it isn't.
 
 Check out the [client.py](src/pvpi/client.py) for more details.
 
