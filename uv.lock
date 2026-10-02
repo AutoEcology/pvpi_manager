@@ -663,13 +663,18 @@ version = "1.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
-    { name = "pandas" },
     { name = "platformdirs" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyserial" },
-    { name = "streamlit" },
     { name = "zmq" },
+]
+
+[package.optional-dependencies]
+dashboard = [
+    { name = "altair" },
+    { name = "pandas" },
+    { name = "streamlit" },
 ]
 
 [package.dev-dependencies]
@@ -679,15 +684,17 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "altair", marker = "extra == 'dashboard'", specifier = ">=5" },
     { name = "click", specifier = ">=8.3.1" },
-    { name = "pandas", specifier = ">=2.0.0" },
+    { name = "pandas", marker = "extra == 'dashboard'", specifier = ">=2.0.0" },
     { name = "platformdirs", specifier = ">=4.5.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "pyserial", specifier = ">=3.5" },
-    { name = "streamlit", specifier = ">=1.54.0" },
+    { name = "streamlit", marker = "extra == 'dashboard'", specifier = ">=1.54.0" },
     { name = "zmq", specifier = ">=0.0.0" },
 ]
+provides-extras = ["dashboard"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8" }]

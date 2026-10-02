@@ -16,8 +16,15 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "pyserial>=3.5",
     "zmq>=0.0.0",
+]
+
+[project.optional-dependencies]
+# The web dashboard (pvpi_dashboard.service): what it imports. The UART proxy, the manager
+# and the client don't need any of it.
+dashboard = [
     "streamlit>=1.54.0",
     "pandas>=2.0.0",
+    "altair>=5",
 ]
 [dependency-groups]
 dev = [
