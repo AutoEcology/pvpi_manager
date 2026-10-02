@@ -190,6 +190,9 @@ def install_systemd(config_path: Path | None = None) -> None:
     target_dir = _SYSTEMD_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
 
+    # A service installed before and disabled since (e.g. the dashboard, turned off with
+    # systemctl disable) stays disabled: its unit is updated, but it isn't started.
+    disabled = [name for name in services if (target_dir / name).exists() and not _enabled(name)]
     for name in services:
         if name == "pvpi_uart.service":
             exec_start = make_exec_start("uart-proxy")
@@ -205,6 +208,9 @@ def install_systemd(config_path: Path | None = None) -> None:
     # Start systemd services
     subprocess.run(["systemctl", "daemon-reload"], check=True)
     for name in services:
+        if name in disabled:
+            _logger.info("%s updated, and left disabled (systemctl enable --now %s to start it)", name, name)
+            continue
         subprocess.run(["systemctl", "enable", name], check=True)
         subprocess.run(["systemctl", "restart", name], check=True)
         _logger.info("%s installed & started", name)
@@ -219,6 +225,10 @@ def _remove_service(name: str) -> None:
     subprocess.run(["systemctl", "disable", "--now", name], check=False)
     unit.unlink()
     _logger.info("%s uninstalled", name)
+
+
+def _enabled(name: str) -> bool:
+    return subprocess.run(["systemctl", "is-enabled", "--quiet", name], check=False).returncode == 0
 
 
 def _installed_services() -> list[str]:

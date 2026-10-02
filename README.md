@@ -68,6 +68,11 @@ uv sync --extra dashboard  # or plain uv sync, as installed
 uv run pvpi restart
 ```
 
+Updating from a version whose dashboard ran as root (before the dashboard extra): `uv sync` may stop with "Permission denied" on a `__pycache__` folder. Give the files back to your user once, then sync again:
+```shell
+sudo chown -R $USER: .venv
+```
+
 # Quick-start
 
 ```shell
@@ -91,6 +96,8 @@ The installation places up to three system services that will run automatically 
 - The Dashboard is a simple Streamlit based dashboard to display live PV Pi statistics
 as well as the historical data logs hosted on port 8501. Historical data log requires
 log_pvpi_stats to be enabled. It's only installed when the dashboard extra is (`uv sync --extra dashboard`).
+
+Running `pvpi install` again (e.g. after an update) keeps a service you've disabled (`sudo systemctl disable --now pvpi_dashboard.service`) disabled.
 
 This is an optional installation. Each service can be run directly via the CLI, and neither are required to run in order to use the PV Pi SDK. The serve as examples on which to base your own work.
 

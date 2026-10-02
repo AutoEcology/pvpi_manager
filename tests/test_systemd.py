@@ -24,13 +24,18 @@ def test_the_services_names_are_public():
     assert systemd.SERVICES == ["pvpi_uart.service", "pvpi_manager.service", "pvpi_dashboard.service"]
 
 
-def _install(tmp_path, monkeypatch, dashboard: bool):
+def _install(tmp_path, monkeypatch, dashboard: bool, disabled=()):
     calls = []
     monkeypatch.setattr(systemd, "_check_run_requirements", lambda: None)
     monkeypatch.setattr(systemd, "_get_username", lambda: "pi")
     monkeypatch.setattr(systemd, "_SYSTEMD_DIR", tmp_path / "units")
     monkeypatch.setattr(systemd, "dashboard_installed", lambda: dashboard)
-    monkeypatch.setattr(systemd.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    def run(cmd, **kw):
+        calls.append(cmd)
+        enabled = cmd[:3] == ["systemctl", "is-enabled", "--quiet"] and cmd[3] not in disabled
+        return systemd.subprocess.CompletedProcess(cmd, 0 if enabled or cmd[1] != "is-enabled" else 1)
+
+    monkeypatch.setattr(systemd.subprocess, "run", run)
     config = tmp_path / "config.json"
     config.write_text("{}")
     systemd.install_systemd(config)
@@ -53,3 +58,14 @@ def test_without_the_dashboard_extra_its_service_is_left_out(tmp_path, monkeypat
     assert sorted(u.name for u in (tmp_path / "units").iterdir()) == ["pvpi_manager.service", "pvpi_uart.service"]
     assert ["systemctl", "disable", "--now", "pvpi_dashboard.service"] in calls
     assert ["systemctl", "enable", "pvpi_dashboard.service"] not in calls
+
+
+def test_a_service_disabled_since_it_was_installed_stays_disabled(tmp_path, monkeypatch):
+    (tmp_path / "units").mkdir()
+    for name in systemd.SERVICES:
+        (tmp_path / "units" / name).write_text("[Service]\n")
+    calls = _install(tmp_path, monkeypatch, dashboard=True, disabled=("pvpi_dashboard.service",))
+    assert "pvpi dashboard" in (tmp_path / "units" / "pvpi_dashboard.service").read_text()  # updated
+    assert ["systemctl", "enable", "pvpi_dashboard.service"] not in calls
+    assert ["systemctl", "restart", "pvpi_dashboard.service"] not in calls
+    assert ["systemctl", "restart", "pvpi_manager.service"] in calls
