@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 from datetime import time
 from pathlib import Path
@@ -59,10 +60,17 @@ class PvPiConfig(BaseSettings, extra="forbid"):
                 with open(path) as f:
                     return cls.model_validate(json.load(f))
             else:
-                config_path.parent.mkdir(parents=True, exist_ok=True)
-                data = cls().model_dump(mode='json')
-                with open(path, 'w') as f:
-                    json.dump(data, f, indent=2, default=str)
-                return cls
+                config = cls()
+                config.save(config_path)
+                return config
 
         raise ValueError(f"unsupported file type '{ext}'")
+
+    def save(self, path: str | Path) -> None:
+        """Write this config as JSON to `path`, replacing it in one step, so a service
+        starting meanwhile never reads half a file."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.tmp")
+        tmp.write_text(json.dumps(self.model_dump(mode="json"), indent=2) + "\n")
+        os.replace(tmp, path)
