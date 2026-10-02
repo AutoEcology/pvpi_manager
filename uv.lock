@@ -667,7 +667,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyserial" },
-    { name = "zmq" },
+    { name = "pyzmq" },
 ]
 
 [package.optional-dependencies]
@@ -691,8 +691,8 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.12.0" },
     { name = "pyserial", specifier = ">=3.5" },
+    { name = "pyzmq", specifier = ">=26" },
     { name = "streamlit", marker = "extra == 'dashboard'", specifier = ">=1.54.0" },
-    { name = "zmq", specifier = ">=0.0.0" },
 ]
 provides-extras = ["dashboard"]
 
@@ -1296,12 +1296,3 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/db/d9/c495884c6e548fce18a8f40568ff120bc3a4b7b99813081c8ac0c936fa64/watchdog-6.0.0-py3-none-win_amd64.whl", hash = "sha256:cbafb470cf848d93b5d013e2ecb245d4aa1c8fd0504e863ccefa32445359d680", size = 79070, upload-time = "2024-11-01T14:07:10.686Z" },
     { url = "https://files.pythonhosted.org/packages/33/e8/e40370e6d74ddba47f002a32919d91310d6074130fe4e17dabcafc15cbf1/watchdog-6.0.0-py3-none-win_ia64.whl", hash = "sha256:a1914259fa9e1454315171103c6a30961236f508b9b623eae470268bbcc6a22f", size = 79067, upload-time = "2024-11-01T14:07:11.845Z" },
 ]
-
-[[package]]
-name = "zmq"
-version = "0.0.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pyzmq" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/6e/78/833b2808793c1619835edb1a4e17a023d5d625f4f97ff25ffff986d1f472/zmq-0.0.0.tar.gz", hash = "sha256:6b1a1de53338646e8c8405803cffb659e8eb7bb02fff4c9be62a7acfac8370c9", size = 966, upload-time = "2015-05-21T17:34:26.603Z" }
