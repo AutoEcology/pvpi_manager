@@ -10,7 +10,8 @@ from pvpi.config import PvPiConfig
 from pvpi.logging_ import init_logging
 from pvpi.services import system_manager
 from pvpi.services.zmq_serial_proxy import ZmqSerialProxy
-from pvpi.systemd import install_systemd, uninstall_systemd, restart_systemd, run_dashboard
+from pvpi.systemd import config_path as systemd_config_path
+from pvpi.systemd import install_systemd, restart_systemd, run_dashboard, uninstall_systemd
 from pvpi.transports import SerialInterface
 
 logger = logging.getLogger("pvpi")
@@ -187,10 +188,19 @@ def dashboard(config: str | None = None):
 
 
 @cli.command(short_help="Install Pv Pi logger & UART proxy as systemd services")
-@click.option("--config", type=click.Path(exists=True, file_okay=True, dir_okay=False))
+@click.option(
+    "--config",
+    type=click.Path(file_okay=True, dir_okay=False),
+    help="The config file the services use (made with the defaults if it's not there)",
+)
 def install(config: str | None = None):
     config_path = Path(config).resolve() if config else None
     install_systemd(config_path=config_path)
+
+
+@cli.command(short_help="Print the config file the installed services use")
+def config_path():
+    click.echo(systemd_config_path())
 
 
 @cli.command(short_help="Uninstall Pv Pi logger & UART proxy as systemd services")

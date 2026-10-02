@@ -1,6 +1,7 @@
 import logging
 import os
 import pwd
+import re
 import shutil
 import subprocess
 import sys
@@ -8,7 +9,9 @@ from pathlib import Path
 
 from pvpi.utils import is_linux
 
-_SERVICES = ["pvpi_uart.service", "pvpi_manager.service", "pvpi_dashboard.service"]
+SERVICES = ["pvpi_uart.service", "pvpi_manager.service", "pvpi_dashboard.service"]
+_SERVICES = SERVICES  # its old name
+_SYSTEMD_DIR = Path("/etc/systemd/system")
 
 _logger = logging.getLogger(__name__)
 
@@ -38,6 +41,32 @@ def _find_bin(name: str) -> Path | None:
     if candidate.exists():
         return candidate
     return None
+
+
+def _user_home() -> Path:
+    """The real (non-root) user's home, also when running under sudo."""
+    return Path(pwd.getpwnam(_get_username()).pw_dir)
+
+
+def default_config_path() -> Path:
+    """Where `pvpi install` puts config.json when it's given none: in the cloned repo, as
+    before, or for an installed package the user's config folder (~/.config/pvpi)."""
+    project_dir = _get_project_dir()
+    if project_dir is not None:
+        return project_dir / "config.json"
+    return _user_home() / ".config" / "pvpi" / "config.json"
+
+
+def config_path(systemd_dir: Path = _SYSTEMD_DIR) -> Path:
+    """The config.json the installed services use: the --config in the manager service's
+    unit, else where `pvpi install` would put it. For other programs to read or change the
+    settings the services run with (then restart them, see restart_systemd)."""
+    try:
+        unit = (systemd_dir / "pvpi_manager.service").read_text()
+    except OSError:
+        return default_config_path()
+    found = re.search(r"^ExecStart=.*--config[= ](\S+)", unit, re.MULTILINE)
+    return Path(found.group(1)) if found else default_config_path()
 
 
 def _get_pvpi() -> Path:
@@ -120,6 +149,25 @@ def _render_service(name: str, user: str, exec_start: str) -> str:
     raise ValueError(f"unknown service: {name}")
 
 
+def _save_default_config(path: Path, user: str) -> None:
+    """The defaults, owned by the services' user (install runs as root), with its data
+    folder in that user's home rather than root's."""
+    from platformdirs import user_data_dir
+
+    from pvpi.config import PvPiConfig
+
+    home = _user_home()
+    data = Path(user_data_dir("pvpi"))
+    try:
+        data = home / data.relative_to(Path.home())
+    except ValueError:
+        pass
+    PvPiConfig(data_log_path=data).save(path)
+    owner = pwd.getpwnam(user)
+    for p in (path, path.parent):
+        os.chown(p, owner.pw_uid, owner.pw_gid)
+
+
 def _check_run_requirements():
     if not is_linux():
         raise OSError("System is not linux")
@@ -136,8 +184,10 @@ def install_systemd(config_path: Path | None = None) -> None:
 
     # Create default path if no config path provided
     if config_path is None:
-        config_path = project_dir / "config.json"
+        config_path = default_config_path()
+    if not config_path.exists():
         _logger.info("Saving default config file at %s", config_path)
+        _save_default_config(config_path, user)
 
     config_flag = f" --config {config_path}" if config_path else ""
 
@@ -155,7 +205,7 @@ def install_systemd(config_path: Path | None = None) -> None:
             return f"{pvpi} {subcmd}{config_flag}"
 
     _logger.info("Installing systemd services for user '%s'", user)
-    target_dir = Path("/etc/systemd/system")
+    target_dir = _SYSTEMD_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
 
     # In your systemd.py loop:
