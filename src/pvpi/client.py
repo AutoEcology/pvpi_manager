@@ -59,9 +59,9 @@ PvPiFaultStateDescriptions = {
 }
 
 
-def _get_interface():
+def _get_interface(timeout_ms: int = 10_000):
     try:
-        interface = ZmqSerialProxyInterface()
+        interface = ZmqSerialProxyInterface(recv_timeout_ms=timeout_ms)
         _logger.info("Defaulted to ZmqSerialProxyInterface")
         return interface
     except Exception:
@@ -89,8 +89,10 @@ class PvPiClient:
         (12.0, 0),
     ]
 
-    def __init__(self, interface: BaseTransportInterface | None = None):
-        self._interface = interface or _get_interface()
+    def __init__(self, interface: BaseTransportInterface | None = None, timeout_ms: int = 10_000):
+        """`timeout_ms`: how long each request waits for the UART proxy's answer (when
+        `interface` isn't given and the proxy is running)."""
+        self._interface = interface or _get_interface(timeout_ms)
 
     def get_alive(self) -> bool:
         """Return True if PV PI is responsive"""

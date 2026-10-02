@@ -51,7 +51,7 @@ class SerialInterface(BaseTransportInterface):
 
 
 class ZmqSerialProxyInterface(BaseTransportInterface):
-    def __init__(self, addr: str = "tcp://127.0.0.1:5555", recv_timeout_ms=10_000):
+    def __init__(self, addr: str = "tcp://127.0.0.1:5555", recv_timeout_ms=10_000, heartbeat_timeout_ms=1_000):
         self.addr = addr
 
         _logger.info("Connecting to socket at %s", addr)
@@ -61,12 +61,15 @@ class ZmqSerialProxyInterface(BaseTransportInterface):
         self.socket.setsockopt(zmq.IDENTITY, self.client_id)
         self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.setsockopt(zmq.CONNECT_TIMEOUT, 2_000)  # ms
-        self.socket.setsockopt(zmq.RCVTIMEO, recv_timeout_ms)  # ms
+        # The heartbeat only waits briefly: a proxy that's running answers it at once.
+        self.socket.setsockopt(zmq.RCVTIMEO, heartbeat_timeout_ms)  # ms
         self.socket.connect(self.addr)
         _logger.info("Socket connected")
 
         if not self.send_heartbeat():
+            self.close()
             raise ValueError("ZmqSerialProxyInterface failed heartbeat")
+        self.socket.setsockopt(zmq.RCVTIMEO, recv_timeout_ms)  # ms
 
     def close(self):
         _logger.info("Closing socket...")
