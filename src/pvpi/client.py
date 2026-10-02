@@ -240,7 +240,7 @@ class PvPiClient:
         """Set the voltage at which the PV PI will wake the system"""
         if voltage < 11.5 or voltage > 14.4:
             raise ValueError(f"Voltage value {voltage} is invalid! Must be >11.5 and <14.4")
-        millivolts = voltage * 1000
+        millivolts = round(voltage * 1000)  # whole units: 12900, not 12900.0 (or 1004.9999999999999 for 1.005)
         cmd = f"SET_WAKEUP_MILLIVOLT,{millivolts}".encode()
         resp = self._interface.write(cmd)
         _, success = resp.split(",")
@@ -251,7 +251,7 @@ class PvPiClient:
         """Set the maximum battery charge current for the PV PI"""
         if current < 0.4 or current > 10:
             raise ValueError(f"Current value {current} is invalid! Must be >0.4 and <10")
-        milliamps = current * 1000
+        milliamps = round(current * 1000)
         cmd = f"SET_CHARGE_MILLIAMPS,{milliamps}".encode()
         resp = self._interface.write(cmd)
         _, success = resp.split(",")
@@ -262,7 +262,7 @@ class PvPiClient:
         """Set the maximum input current for the PV PI"""
         if current < 0.4 or current > 8:
             raise ValueError(f"Current value {current} is invalid! Must be >0.4 and <8")
-        milliamps = current * 1000
+        milliamps = round(current * 1000)
         cmd = f"SET_INPUT_MILLIAMPS,{milliamps}".encode()
         resp = self._interface.write(cmd)
         _, success = resp.split(",")
