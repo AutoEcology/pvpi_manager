@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PV Pi Dashboard</title>
+<style>
+:root {
+  --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #677085; --line: #e3e6ec;
+  --pv: #d99a00; --bat: #1677d2; --temp: #d93c3c; --bad: #b42318;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151b; --card: #1b1f27; --text: #e6e9ef; --muted: #98a1b3; --line: #2c323d;
+    --pv: #f5b82e; --bat: #4ea8f5; --temp: #f06464; --bad: #ff8a80;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1200px; margin: 0 auto; padding: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+h1 { font-size: 1.4rem; margin: 0; }
+h2 { font-size: 1.1rem; margin: 28px 0 10px; }
+.muted { color: var(--muted); font-size: 0.85rem; }
+.bad { color: var(--bad); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 14px; }
+.tile, .chart { background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.tile { padding: 12px 14px; }
+.tile .label { color: var(--muted); font-size: 0.8rem; }
+.tile .value { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.range { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.range input { font: inherit; color: var(--text); background: var(--card);
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
+.chart { padding: 10px 12px 6px; }
+.chart h3 { font-size: 0.9rem; font-weight: 600; margin: 0 0 4px; display: flex; justify-content: space-between; gap: 8px; }
+.chart h3 .readout { color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+.chart svg { display: block; width: 100%; height: 190px; overflow: visible; touch-action: pan-y; }
+.chart text { fill: var(--muted); font-size: 11px; }
+.grid { stroke: var(--line); stroke-width: 1; }
+.raw { fill: none; stroke-width: 3; stroke-opacity: 0.25; stroke-linejoin: round; }
+.avg { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.cursor { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>☀️ PV Pi</h1>
+    <span id="updated" class="muted">Loading…</span>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="label">Estimated charge</div><div class="value" id="soc">–</div></div>
+    <div class="tile"><div class="label">Battery voltage</div><div class="value" id="bat_v">–</div></div>
+    <div class="tile"><div class="label">Battery current</div><div class="value" id="bat_c">–</div></div>
+    <div class="tile"><div class="label">Solar voltage</div><div class="value" id="pv_v">–</div></div>
+    <div class="tile"><div class="label">Solar current</div><div class="value" id="pv_c">–</div></div>
+    <div class="tile"><div class="label">Board temperature</div><div class="value" id="temp">–</div></div>
+  </div>
+
+  <section id="history" hidden>
+    <h2>History</h2>
+    <div class="range">
+      <label>From <input type="date" id="start"></label>
+      <label>to <input type="date" id="end"></label>
+      <span id="history-note" class="muted"></span>
+    </div>
+    <h2>Solar input</h2>
+    <div class="charts" id="solar"></div>
+    <h2>Battery</h2>
+    <div class="charts" id="battery"></div>
+    <h2>Board temperature</h2>
+    <div class="charts" id="thermal"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const REFRESH_MS = 60000;
+const AVERAGE_OF = 12;          // points in the moving average
+const GAP_MS = 30 * 60 * 1000;  // a longer gap between readings (e.g. overnight) breaks the line
+
+const CHARTS = [
+  { box: "solar", title: "Voltage", unit: "V", color: "--pv", series: c => c.pv_v },
+  { box: "solar", title: "Current", unit: "A", color: "--pv", series: c => c.pv_c },
+  { box: "solar", title: "Power estimate", unit: "W", color: "--pv", series: c => c.pv_v.map((v, i) => v * c.pv_c[i]) },
+  { box: "battery", title: "Voltage", unit: "V", color: "--bat", series: c => c.bat_v },
+  { box: "battery", title: "Charge current", unit: "A", color: "--bat", series: c => c.bat_c },
+  { box: "battery", title: "Charge power estimate", unit: "W", color: "--bat", series: c => c.bat_v.map((v, i) => v * c.bat_c[i]) },
+  { box: "thermal", title: "Temperature", unit: "°C", color: "--temp", series: c => c.temp },
+];
+
+const $ = id => document.getElementById(id);
+const fmt = (v, digits) => (v == null || Number.isNaN(v)) ? "–" : v.toFixed(digits);
+
+async function getJSON(url) {
+  const response = await fetch(url, { cache: "no-store" });
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || response.statusText);
+  return body;
+}
+
+// ---- Live readings ----
+let historyOn = false;
+
+async function refreshLive() {
+  try {
+    const r = await getJSON("/api/live");
+    $("soc").textContent = fmt(r.soc, 0) + " %";
+    $("bat_v").textContent = fmt(r.bat_v, 2) + " V";
+    $("bat_c").textContent = fmt(r.bat_c, 2) + " A";
+    $("pv_v").textContent = fmt(r.pv_v, 2) + " V";
+    $("pv_c").textContent = fmt(r.pv_c, 2) + " A";
+    $("temp").textContent = fmt(r.temp, 0) + " °C";
+    $("updated").textContent = "Updated " + new Date().toLocaleTimeString();
+    $("updated").className = "muted";
+    if (r.full_dashboard && !historyOn) { historyOn = true; $("history").hidden = false; refreshHistory(); }
+  } catch (err) {
+    $("updated").textContent = err.message;
+    $("updated").className = "bad";
+    if (!historyOn) { historyOn = true; $("history").hidden = false; refreshHistory(); }
+  }
+}
+
+// ---- History ----
+async function refreshHistory() {
+  const params = new URLSearchParams();
+  if ($("start").value) params.set("start", $("start").value);
+  if ($("end").value) params.set("end", $("end").value);
+  let h;
+  try {
+    h = await getJSON("/api/history?" + params);
+  } catch (err) {
+    if (err.message.includes("full_dashboard")) { $("history").hidden = true; return; }
+    $("history-note").textContent = err.message;
+    return;
+  }
+  for (const id of ["start", "end"]) {
+    $(id).min = h.first || "";
+    $(id).max = h.last || "";
+    if (!$(id).value && h[id]) $(id).value = h[id];
+  }
+  const count = h.columns.t.length;
+  $("history-note").textContent = h.first
+    ? `${count} readings · logs from ${h.first} to ${h.last}`
+    : "No logs yet: the manager writes them when log_pvpi_stats is on.";
+  drawCharts(h.columns);
+}
+
+function movingAverage(values, n) {
+  // Centred, over full windows only (like the raw line, broken across gaps by drawLine).
+  const out = new Array(values.length).fill(null);
+  const half = Math.floor(n / 2);
+  let sum = 0;
+  for (let i = 0; i < values.length; i++) {
+    sum += values[i];
+    if (i >= n) sum -= values[i - n];
+    if (i >= n - 1) out[i - n + 1 + half] = sum / n;
+  }
+  return out;
+}
+
+function niceTicks(lo, hi, count) {
+  const step0 = (hi - lo) / count;
+  const mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= step0) || step0;
+  const ticks = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) ticks.push(+v.toFixed(10));
+  return ticks;
+}
+
+const SVG = "http://www.w3.org/2000/svg";
+function el(name, attrs, parent) {
+  const node = document.createElementNS(SVG, name);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+let lastColumns = null;
+function drawCharts(columns) {
+  lastColumns = columns;
+  for (const box of ["solar", "battery", "thermal"]) $(box).replaceChildren();
+  const times = columns.t.map(t => new Date(t.replace(" ", "T")).getTime());
+  // All the cards first, so each is measured at its width in the finished layout.
+  const cards = CHARTS.map(chart => {
+    const card = document.createElement("div");
+    card.className = "chart";
+    const title = document.createElement("h3");
+    const readout = document.createElement("span");
+    readout.className = "readout";
+    title.append(`${chart.title} (${chart.unit})`, readout);
+    card.appendChild(title);
+    $(chart.box).appendChild(card);
+    return { card, readout, svg: el("svg", {}, card) };
+  });
+  CHARTS.forEach((chart, i) => drawChart(chart, cards[i], times, chart.series(columns)));
+}
+
+function drawChart(chart, { readout, svg }, times, values) {
+  const W = Math.max(240, Math.round(svg.getBoundingClientRect().width) || 600), H = 190, L = 44, R = 8, T = 8, B = 22;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (!values.length) {
+    el("text", { x: W / 2, y: H / 2, "text-anchor": "middle" }, svg).textContent = "No readings in this range";
+    return;
+  }
+  const color = getComputedStyle(document.documentElement).getPropertyValue(chart.color).trim();
+  const t0 = times[0], t1 = times[times.length - 1] === t0 ? t0 + 1 : times[times.length - 1];
+  let lo = Math.min(...values), hi = Math.max(...values);
+  if (hi === lo) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const x = t => L + (t - t0) / (t1 - t0) * (W - L - R);
+  const y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+
+  for (const v of niceTicks(lo, hi, 4)) {
+    el("line", { class: "grid", x1: L, x2: W - R, y1: y(v), y2: y(v) }, svg);
+    el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = +v.toFixed(2);
+  }
+  const days = (t1 - t0) / 86400000, n = W < 420 ? 2 : 4;
+  for (let i = 0; i <= n; i++) {
+    const d = new Date(t0 + (t1 - t0) * i / n);
+    const label = days > 6 ? d.toLocaleDateString([], { month: "short", day: "numeric" })
+      : days > 1 ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric" })
+      : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    el("text", { x: x(d.getTime()), y: H - 4, "text-anchor": i === 0 ? "start" : i === n ? "end" : "middle" }, svg).textContent = label;
+  }
+
+  const drawLine = (series, cls) => {
+    let d = "", prev = null;
+    series.forEach((v, i) => {
+      if (v == null) { prev = null; return; }
+      const broken = prev === null || times[i] - times[prev] > GAP_MS;
+      d += `${broken ? "M" : "L"}${x(times[i]).toFixed(1)},${y(v).toFixed(1)}`;
+      prev = i;
+    });
+    el("path", { class: cls, d, stroke: color, "vector-effect": "non-scaling-stroke" }, svg);
+  };
+  drawLine(values, "raw");
+  drawLine(movingAverage(values, AVERAGE_OF), "avg");
+
+  // Hover (or touch) for the reading at that time
+  const cursor = el("line", { class: "cursor", y1: T, y2: H - B, visibility: "hidden", "vector-effect": "non-scaling-stroke" }, svg);
+  const show = event => {
+    const box = svg.getBoundingClientRect();
+    const t = t0 + ((event.clientX - box.left) / box.width * W - L) / (W - L - R) * (t1 - t0);
+    let i = times.findIndex(time => time >= t);
+    if (i < 0) i = times.length - 1;
+    if (i > 0 && t - times[i - 1] < times[i] - t) i -= 1;
+    cursor.setAttribute("x1", x(times[i])); cursor.setAttribute("x2", x(times[i]));
+    cursor.setAttribute("visibility", "visible");
+    const when = new Date(times[i]).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    readout.textContent = `${fmt(values[i], 2)} ${chart.unit} · ${when}`;
+  };
+  svg.addEventListener("pointermove", show);
+  svg.addEventListener("pointerleave", () => { cursor.setAttribute("visibility", "hidden"); readout.textContent = ""; });
+}
+
+let resizing;
+window.addEventListener("resize", () => {
+  clearTimeout(resizing);
+  resizing = setTimeout(() => { if (lastColumns) drawCharts(lastColumns); }, 200);
+});
+$("start").addEventListener("change", refreshHistory);
+$("end").addEventListener("change", refreshHistory);
+refreshLive();
+setInterval(() => { refreshLive(); if (historyOn && !$("history").hidden) refreshHistory(); }, REFRESH_MS);
+</script>
+</body>
+</html>

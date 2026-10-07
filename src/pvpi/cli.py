@@ -181,7 +181,7 @@ def manager(config: str | None = None):
     system_manager.run(config=_config)
 
 
-@cli.command(short_help="Launch the Streamlit web dashboard")
+@cli.command(short_help="Launch the web dashboard")
 @click.option("--config", type=click.Path(file_okay=True, dir_okay=False))
 def dashboard(config: str | None = None):
     run_dashboard(config_path=config)
@@ -193,9 +193,14 @@ def dashboard(config: str | None = None):
     type=click.Path(file_okay=True, dir_okay=False),
     help="The config file the services use (made with the defaults if it's not there)",
 )
-def install(config: str | None = None):
+@click.option(
+    "--dashboard/--no-dashboard",
+    default=None,
+    help="Also install the web dashboard as a service, or remove it (left as it is if not given)",
+)
+def install(config: str | None = None, dashboard: bool | None = None):
     config_path = Path(config).resolve() if config else None
-    install_systemd(config_path=config_path)
+    install_systemd(config_path=config_path, dashboard=dashboard)
 
 
 @cli.command(short_help="Print the config file the installed services use")

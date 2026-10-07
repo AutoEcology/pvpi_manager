@@ -55,20 +55,18 @@ Clone the repo:
 ```shell
 git clone https://github.com/LukeDitria/pvpi_manager.git
 cd pvpi_manager
-uv sync --extra dashboard
+uv sync
 uv run pvpi
 ```
-
-The web dashboard is optional. Leave out `--extra dashboard` (`uv sync`) for a much smaller install (about 25 MB instead of about 370 MB, and no numpy): everything else works the same, and `pvpi install` then leaves the dashboard service out.
 
 To update later:
 ```shell
 git pull
-uv sync --extra dashboard  # or plain uv sync, as installed
+uv sync
 uv run pvpi restart
 ```
 
-Updating from a version whose dashboard ran as root (before the dashboard extra): `uv sync` may stop with "Permission denied" on a `__pycache__` folder. Give the files back to your user once, then sync again:
+If you're updating from an older version whose dashboard ran as root, `uv sync` may stop with "Permission denied" on a `__pycache__` folder. Give the files back to your user once, then sync again:
 ```shell
 sudo chown -R $USER: .venv
 ```
@@ -90,16 +88,29 @@ PV Pi manager comes with an `install` command to setup an automatic PV Pi Manage
 uv run pvpi install
 ```
 
-The installation places up to three system services that will run automatically upon every boot. They run the `pvpi` of the environment `install` was run from (e.g. `pvpi_manager/.venv/bin/pvpi`), with nothing in front of it. There is:
+The installation places two system services that will run automatically upon every boot, three if you add the dashboard. They run the `pvpi` of the environment `install` was run from (e.g. `pvpi_manager/.venv/bin/pvpi`), with nothing in front of it. There is:
 - The UART Proxy is a service that manages communications to the PV PI for multiple applications attempting to do so at once. It holds onto the serial connection to the PV Pi and proxies requests over network sockets.
 - The Manager services is a simple looping script that communicates, via the UART proxy, to the PV Pi and logs metrics. Every 10 seconds it checks the battery, and it shuts the Pi down once `low_bat_readings` readings in a row (3 by default) are at or below `low_bat_volt`, so a short dip under load doesn't power the device off. A reading that fails is retried on the next pass; the service only stops (and systemd starts it again) after 5 failed passes in a row.
-- The Dashboard is a simple Streamlit based dashboard to display live PV Pi statistics
-as well as the historical data logs hosted on port 8501. Historical data log requires
-log_pvpi_stats to be enabled. It's only installed when the dashboard extra is (`uv sync --extra dashboard`).
+- The Dashboard (optional) is a small web page showing live PV Pi readings and charts of the logged history, on port 8501. The history needs `log_pvpi_stats` to be enabled.
 
-Running `pvpi install` again (e.g. after an update) keeps a service you've disabled (`sudo systemctl disable --now pvpi_dashboard.service`) disabled.
+### Want the dashboard too?
+The dashboard is off unless you ask for it. To add it:
 
-This is an optional installation. Each service can be run directly via the CLI, and neither are required to run in order to use the PV Pi SDK. The serve as examples on which to base your own work.
+```shell
+uv run pvpi install --dashboard
+```
+
+Then open `http://<your-pi>:8501` in a browser on the same network (e.g. `http://raspberrypi.local:8501`). It's light enough to run alongside your own programs, even on a Pi Zero.
+
+Changed your mind? Take it off again with:
+
+```shell
+uv run pvpi install --no-dashboard
+```
+
+Running `pvpi install` again (e.g. after an update) leaves the dashboard as you set it up, and keeps a service you've disabled (`sudo systemctl disable --now pvpi_dashboard.service`) disabled.
+
+This is an optional installation. Each service can be run directly via the CLI (`uv run pvpi dashboard` starts the dashboard until you stop it), and none are required to run in order to use the PV Pi SDK. They serve as examples on which to base your own work.
 
 # Other CLI commands
 
@@ -198,7 +209,7 @@ uv run pvpi set-charging --enable
 ```shell
 sudo systemctl status pvpi_manager.service
 sudo systemctl status pvpi_uart.service
-sudo systemctl status pvpi_dashboard.service
+sudo systemctl status pvpi_dashboard.service  # if you added the dashboard
 ```
 
 For example, to stop and disable the dashboard so it will no longer run on boot:
@@ -209,11 +220,11 @@ sudo systemctl disable pvpi_dashboard.service
 
 While the status of services can be viewed with `systemctl` as shown above, the log output can be followed using `journalctl`.
 
-To follow the **live** log output from either service:
+To follow the **live** log output from any service:
 ```shell
 journalctl -u pvpi_manager.service -f
 journalctl -u pvpi_uart.service -f
-journalctl -u pvpi_dashboard.service -f
+journalctl -u pvpi_dashboard.service -f  # if you added the dashboard
 ```
 
 (i) `journalctl` is a Linux command-line tool for viewing and managing logs from `systemd`. Logs can be filtered by process and time. [Learn more](https://www.digitalocean.com/community/tutorials/how-to-use-journalctl-to-view-and-manipulate-systemd-logs).
@@ -238,7 +249,7 @@ uv add pvpi
 ```
 OR
 ```shell
-pip install pvpi            # pip install "pvpi[dashboard]" for the dashboard too
+pip install pvpi
 ```
 
 A pip-installed `pvpi install` sets up the services from that environment too.

@@ -1,196 +1,187 @@
-import os
-import streamlit as st
-import pandas as pd
-import glob
+"""A small web dashboard: live PV PI readings and charts of the logged history.
+
+The server only reads the CSV logs and asks the UART proxy; the page (dashboard.html) draws
+the charts in the browser, so the Pi does little more than serve a few kilobytes of JSON.
+"""
+
+import contextlib
+import csv
+import json
+import logging
+import threading
+import time
+from collections.abc import Callable
+from datetime import date, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from importlib.resources import files
 from pathlib import Path
-import altair as alt
-from datetime import timedelta
+from urllib.parse import parse_qs, urlparse
 
+from pvpi.client import PvPiClient
 from pvpi.config import PvPiConfig
-from pvpi import PvPiClient
+from pvpi.transports import ZmqSerialProxyInterface
+
+_logger = logging.getLogger(__name__)
+
+LIVE_CACHE_SECS = 5  # several open pages share one set of readings
+DEFAULT_DAYS = 2  # the history shown first: the last two days logged
+
+# CSV column -> the key the page uses
+_COLUMNS = {
+    "Timestamp": "t",
+    "Battery Voltage": "bat_v",
+    "Battery Current": "bat_c",
+    "PV Voltage": "pv_v",
+    "PV Current": "pv_c",
+    "PV PI Temperature": "temp",
+}
 
 
-st.set_page_config(page_title="PV Pi Full System Monitor", layout="wide")
+def _proxy_client() -> PvPiClient:
+    # Only through the UART proxy: opening the serial port here would take it from the proxy.
+    return PvPiClient(interface=ZmqSerialProxyInterface())
 
 
-# --- CACHED RESOURCES ---
-
-@st.cache_resource
-def get_client():
-    return PvPiClient()
-
-
-@st.cache_resource
-def load_config():
-    config_path = os.environ.get("PVPI_CONFIG_PATH")
-    if config_path:
-        return PvPiConfig.from_file(config_path)
-    return PvPiConfig()
-
-
-@st.cache_data(ttl=60)
-def load_all_data(csv_data_path):
-    files = glob.glob(str(csv_data_path / "*.csv"))
-    if not files:
-        return None
-
-    dataframes = []
-    for f in files:
+def _log_dates(log_dir: Path) -> list[date]:
+    """The days there's a log file for, oldest first."""
+    found = []
+    for file in log_dir.glob("*.csv"):
         try:
-            with open(f, 'r') as fh:
-                temp_df = pd.read_csv(fh)
-            if not temp_df.empty:
-                temp_df.columns = temp_df.columns.str.strip()
-                dataframes.append(temp_df)
-        except Exception:
+            found.append(datetime.strptime(file.stem, "%Y-%m-%d").date())
+        except ValueError:
             continue
-
-    if not dataframes:
-        return None
-
-    all_df = pd.concat(dataframes, axis=0, join='inner', ignore_index=True)
-    all_df['Timestamp'] = pd.to_datetime(all_df['Timestamp'])
-    return all_df.sort_values('Timestamp')
+    return sorted(found)
 
 
-# --- PLOTTING ---
+def read_history(log_dir: Path, start: date | None = None, end: date | None = None) -> dict:
+    """The logged readings from `start` to `end` (both included) as one list per column.
+    Without dates: the last DEFAULT_DAYS days logged."""
+    days = _log_dates(log_dir) if log_dir.is_dir() else []
+    first, last = (days[0], days[-1]) if days else (None, None)
+    if end is None:
+        end = last
+    if start is None and end is not None:
+        start = max(end - timedelta(days=DEFAULT_DAYS), first or end)
 
-def plot_with_trend(series, color, label="Value", window=12):
-    """Plots a bold moving average with a faded raw data line."""
-    raw = series.rename("Raw Data")
-    trend = series.rolling(window=window, center=True).mean().rename("Moving Average")
-    plot_df = pd.concat([raw, trend], axis=1).reset_index()
-    plot_df = plot_df.melt(id_vars=plot_df.columns[0], var_name="Type", value_name="Value")
+    columns: dict[str, list] = {key: [] for key in _COLUMNS.values()}
+    for day in days:
+        if start is None or end is None or not start <= day <= end:
+            continue
+        try:
+            with open(log_dir / f"{day:%Y-%m-%d}.csv", newline="") as f:
+                for row in csv.DictReader(f, skipinitialspace=True):
+                    try:
+                        values = {key: row[name] for name, key in _COLUMNS.items()}
+                        for key, value in values.items():
+                            values[key] = value if key == "t" else float(value)
+                    except (KeyError, TypeError, ValueError):
+                        continue  # a malformed row
+                    for key, value in values.items():
+                        columns[key].append(value)
+        except (OSError, csv.Error) as err:
+            _logger.warning("Skipping %s: %s", day, err)
 
-    chart = (
-        alt.Chart(plot_df)
-        .mark_line()
-        .encode(
-            x=alt.X(plot_df.columns[0], title=""),
-            y=alt.Y("Value", scale=alt.Scale(zero=False), title=label),
-            color=alt.Color("Type", scale=alt.Scale(
-                domain=["Raw Data", "Moving Average"],
-                range=[f"{color}44", color]
-            )),
-            strokeWidth=alt.condition(
-                alt.datum.Type == "Raw Data",
-                alt.value(5),
-                alt.value(3)
-            )
-        )
-    )
+    def iso(d: date | None) -> str | None:
+        return d.isoformat() if d else None
 
-    st.altair_chart(chart, width="stretch")
-
-
-# --- SIDEBAR DATE FILTER (outside fragment so it persists across refreshes) ---
-
-config = load_config()
-csv_data_path = Path(config.data_log_path)
-
-# Load once to populate sidebar date bounds
-df_initial = load_all_data(csv_data_path)
-
-selected_range = None
-if df_initial is not None:
-    st.sidebar.header("📅 History Filter")
-    min_date = df_initial['Timestamp'].min().date()
-    max_date = df_initial['Timestamp'].max().date()
-
-    default_start = max(max_date - timedelta(days=2), min_date)
-    default_end = max_date
-
-    date_input_value = default_start if default_start == default_end else (default_start, default_end)
-
-    selected_range = st.sidebar.date_input(
-        "Select Date Range",
-        value=date_input_value,
-        min_value=min_date,
-        max_value=max_date
-    )
+    return {"first": iso(first), "last": iso(last), "start": iso(start), "end": iso(end), "columns": columns}
 
 
-# --- MAIN DASHBOARD (auto-refreshes every 60s) ---
+class DashboardServer(ThreadingHTTPServer):
+    daemon_threads = True
 
-@st.fragment(run_every=60)
-def dashboard():
-    client = get_client()
+    def __init__(self, address, config: PvPiConfig, make_client: Callable[[], PvPiClient] = _proxy_client):
+        super().__init__(address, _Handler)
+        self.config = config
+        self.make_client = make_client
+        self._client: PvPiClient | None = None
+        self._lock = threading.Lock()  # one request at a time to the board (zmq sockets aren't thread-safe)
+        self._live: tuple[float, dict] | None = None
 
-    # Live metrics
-    st.title("☀️ Live PV Pi Overview")
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric("Estimated SoC", f"{client.estimated_soc():.2f} %")
-    m2.metric("Battery V",     f"{client.get_battery_voltage():.2f} V")
-    m3.metric("Battery A",     f"{client.get_battery_current():.2f} A")
-    m4.metric("PV Voltage",    f"{client.get_pv_voltage():.2f} V")
-    m5.metric("PV Current",    f"{client.get_pv_current():.2f} A")
-    m6.metric("Board Temp",    f"{client.get_board_temp()} °C")
+    def live(self) -> dict:
+        """The current readings, at most LIVE_CACHE_SECS old. Raises when the board can't be read."""
+        with self._lock:
+            if self._live and time.monotonic() - self._live[0] < LIVE_CACHE_SECS:
+                return self._live[1]
+            try:
+                if self._client is None:
+                    self._client = self.make_client()
+                client = self._client
+                readings = {
+                    "soc": client.estimated_soc(),
+                    "bat_v": client.get_battery_voltage(),
+                    "bat_c": client.get_battery_current(),
+                    "pv_v": client.get_pv_voltage(),
+                    "pv_c": client.get_pv_current(),
+                    "temp": client.get_board_temp(),
+                }
+            except Exception:
+                self._drop_client()  # try a fresh connection next time
+                raise
+            readings["time"] = datetime.now().isoformat(timespec="seconds")
+            self._live = (time.monotonic(), readings)
+            return readings
 
-    st.divider()
+    def _drop_client(self) -> None:
+        if self._client is not None:
+            with contextlib.suppress(Exception):
+                self._client._interface.close()
+        self._client = None
 
-    if config.full_dashboard:
-        # Historical data
-        st.title("Historical PV Pi Data")
-        df_master = load_all_data(csv_data_path)
+    def server_close(self):
+        self._drop_client()
+        super().server_close()
 
-        if df_master is None:
-            st.warning(
-                "Cannot display historical data — no log files found. "
-                "Please check your system path or enable log_pvpi_stats in config.json"
-            )
-            return
 
-        # Apply date filter
-        if selected_range is None:
-            return
+class _Handler(BaseHTTPRequestHandler):
+    server: DashboardServer
 
-        if isinstance(selected_range, tuple) and len(selected_range) == 2:
-            start_date, end_date = selected_range
-            df_filtered = df_master[df_master['Timestamp'].dt.date.between(start_date, end_date)]
+    def do_GET(self):
+        url = urlparse(self.path)
+        if url.path == "/":
+            page = files("pvpi.services").joinpath("dashboard.html").read_bytes()
+            self._send(200, page, "text/html; charset=utf-8")
+        elif url.path == "/api/live":
+            try:
+                readings = self.server.live()
+            except Exception as err:
+                _logger.warning("Couldn't read the PV PI: %s", err)
+                self._json(503, {"error": f"Couldn't read the PV PI: {err}"})
+                return
+            self._json(200, {**readings, "full_dashboard": self.server.config.full_dashboard})
+        elif url.path == "/api/history":
+            if not self.server.config.full_dashboard:
+                self._json(404, {"error": "full_dashboard is off"})
+                return
+            query = parse_qs(url.query)
+            try:
+                start, end = (date.fromisoformat(query[k][0]) if k in query else None for k in ("start", "end"))
+            except ValueError:
+                self._json(400, {"error": "start and end are dates: YYYY-MM-DD"})
+                return
+            self._json(200, read_history(Path(self.server.config.data_log_path), start, end))
         else:
-            df_filtered = df_master[df_master['Timestamp'].dt.date == selected_range]
+            self._json(404, {"error": "not found"})
 
-        # Section 1: Solar Input
-        st.header("1. Solar Input")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.subheader("Input Voltage (V)")
-            plot_with_trend(df_filtered.set_index('Timestamp')['PV Voltage'], "#FFCC00", "Volts")
-        with col2:
-            st.subheader("Input Current (A)")
-            plot_with_trend(df_filtered.set_index('Timestamp')['PV Current'], "#FFAA00", "Amps")
-        with col3:
-            st.subheader("Input Power Estimate (W)")
-            pv_pwr = (
-                df_filtered.set_index('Timestamp')['PV Voltage'] *
-                df_filtered.set_index('Timestamp')['PV Current']
-            )
-            plot_with_trend(pv_pwr, "#FFAA00", "Watts")
+    def _json(self, status: int, body: dict) -> None:
+        self._send(status, json.dumps(body, separators=(",", ":")).encode(), "application/json")
 
-        st.divider()
+    def _send(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
-        # Section 2: Battery Storage
-        st.header("2. Battery Storage")
-        col4, col5, col6 = st.columns(3)
-        with col4:
-            st.subheader("Battery Voltage (V)")
-            plot_with_trend(df_filtered.set_index('Timestamp')['Battery Voltage'], "#00CCFF", "Volts")
-        with col5:
-            st.subheader("Battery Charge Current (A)")
-            plot_with_trend(df_filtered.set_index('Timestamp')['Battery Current'], "#0077FF", "Amps")
-        with col6:
-            st.subheader("Battery Charge Power Estimate (W)")
-            batt_pwr = (
-                df_filtered.set_index('Timestamp')['Battery Voltage'] *
-                df_filtered.set_index('Timestamp')['Battery Current']
-            )
-            plot_with_trend(batt_pwr, "#0077FF", "Watts")
-
-        st.divider()
-
-        # Section 3: Thermal
-        st.header("3. PV Pi Thermal")
-        plot_with_trend(df_filtered.set_index('Timestamp')['PV PI Temperature'], "#FF4B4B", "Temp (°C)")
+    def log_message(self, format, *args):  # noqa: A002 (the base class's name)
+        _logger.debug("%s - %s", self.address_string(), format % args)
 
 
-dashboard()
+def run(config: PvPiConfig, host: str = "0.0.0.0", port: int = 8501) -> None:
+    server = DashboardServer((host, port), config)
+    _logger.info("Dashboard at http://%s:%i", host, port)
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()

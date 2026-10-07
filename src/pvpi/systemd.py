@@ -1,4 +1,3 @@
-import importlib.util
 import logging
 import os
 import pwd
@@ -61,11 +60,6 @@ def _venv_pvpi() -> Path:
     return Path(sys.executable).parent / "pvpi"
 
 
-def dashboard_installed() -> bool:
-    """Whether the dashboard's extra (pvpi[dashboard]: streamlit) is installed."""
-    return importlib.util.find_spec("streamlit") is not None
-
-
 def _render_service(name: str, user: str, exec_start: str) -> str:
     """Generate a systemd unit file."""
     if name == "pvpi_uart.service":
@@ -109,7 +103,7 @@ def _render_service(name: str, user: str, exec_start: str) -> str:
     if name == "pvpi_dashboard.service":
         return (
             "[Unit]\n"
-            "Description=PV PI Streamlit Dashboard\n"
+            "Description=PV PI Dashboard\n"
             "After=pvpi_manager.service\n"
             "\n"
             "[Service]\n"
@@ -155,7 +149,9 @@ def _check_run_requirements():
         os.execvp("sudo", ["sudo", sys.executable] + sys.argv)
 
 
-def install_systemd(config_path: Path | None = None) -> None:
+def install_systemd(config_path: Path | None = None, dashboard: bool | None = None) -> None:
+    """Install and start the services. The dashboard's is opt-in: `dashboard` True adds it,
+    False removes it, and None (e.g. installing again after an update) keeps it as it is."""
     _check_run_requirements()
 
     user = _get_username()
@@ -178,13 +174,12 @@ def install_systemd(config_path: Path | None = None) -> None:
         return f"{pvpi} {subcmd}{config_flag}"
 
     services = list(SERVICES)
-    if not dashboard_installed():
+    if dashboard is None:
+        dashboard = (_SYSTEMD_DIR / "pvpi_dashboard.service").exists()
+    if not dashboard:
         services.remove("pvpi_dashboard.service")
-        _logger.info(
-            "The dashboard isn't installed, so its service is left out: add it with "
-            "'uv sync --extra dashboard' (or pip install 'pvpi[dashboard]'), then run pvpi install again"
-        )
         _remove_service("pvpi_dashboard.service")
+        _logger.info("The dashboard isn't installed: add it with 'pvpi install --dashboard'")
 
     _logger.info("Installing systemd services for user '%s'", user)
     target_dir = _SYSTEMD_DIR
@@ -251,19 +246,9 @@ def restart_systemd() -> None:
 
 
 def run_dashboard(config_path: str | None = None) -> None:
-    """Run the dashboard in this process (it becomes streamlit): it only reads the CSV logs
-    and asks the UART proxy, so it needs neither root nor a second environment."""
-    if not dashboard_installed():
-        _logger.error("The dashboard isn't installed: uv sync --extra dashboard (or pip install 'pvpi[dashboard]')")
-        sys.exit(1)
-    dashboard_script = Path(__file__).parent / "services" / "dashboard.py"
-    if config_path:
-        os.environ["PVPI_CONFIG_PATH"] = str(Path(config_path).resolve())
-    cmd = [
-        sys.executable, "-m", "streamlit", "run", str(dashboard_script),
-        "--server.headless", "true",
-        "--server.address", "0.0.0.0",
-        "--server.port", "8501",
-    ]  # fmt: skip
-    _logger.info("Launching Streamlit dashboard...")
-    os.execv(sys.executable, cmd)
+    """Run the dashboard in this process: it only reads the CSV logs and asks the UART proxy,
+    so it needs neither root nor a second environment."""
+    from pvpi.config import PvPiConfig
+    from pvpi.services import dashboard
+
+    dashboard.run(PvPiConfig.from_file(config_path))
