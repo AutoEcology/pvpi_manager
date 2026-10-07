@@ -19,13 +19,20 @@
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 main { max-width: 1200px; margin: 0 auto; padding: 16px; }
-header { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-h1 { display: flex; align-items: center; justify-content: center; gap: 28px; margin: 0; }
-.brand-logo { height: 72px; width: auto; }
+/* Three columns, the middle one always centred over the page: AutoEcology | PV PI | updated */
+header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px 16px; }
+h1 { margin: 0; line-height: 0; }
+.brand-logo { display: block; width: auto; }
+.autoecology { height: 52px; justify-self: start; }
+.pvpi { height: 44px; }
+#updated { justify-self: end; }
 @media (prefers-color-scheme: dark) { .brand-logo { filter: invert(1); } } /* black on transparent: white here */
 @media (max-width: 600px) {
-  h1 { gap: 18px; }
-  .brand-logo { height: 52px; }
+  header { grid-template-columns: 1fr 1fr; }
+  .autoecology { height: 40px; }
+  .pvpi { height: 34px; justify-self: end; }
+  h1 { justify-self: end; }
+  #updated { grid-column: 1 / -1; justify-self: center; }
 }
 h2 { font-size: 1.1rem; margin: 28px 0 10px; }
 .muted { color: var(--muted); font-size: 0.85rem; }
@@ -53,7 +60,8 @@ h2 { font-size: 1.1rem; margin: 28px 0 10px; }
 <body>
 <main>
   <header>
-    <h1><img class="brand-logo" src="/autoecology.png" alt="AutoEcology"><img class="brand-logo" src="/pvpi.png" alt="PV Pi"></h1>
+    <img class="brand-logo autoecology" src="/autoecology.png" alt="AutoEcology">
+    <h1><img class="brand-logo pvpi" src="/pvpi.png" alt="PV Pi"></h1>
     <span id="updated" class="muted">Loading…</span>
   </header>
 
