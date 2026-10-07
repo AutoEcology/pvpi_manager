@@ -70,8 +70,10 @@ def dashboard(tmp_path):
         server.server_close()
 
 
-@pytest.mark.parametrize("path, content_type", [("/", "text/html"), ("/autoecology.png", "image/png")])
-def test_the_page_and_logo_are_served(dashboard, path, content_type):
+@pytest.mark.parametrize(
+    "path, content_type", [("/", "text/html"), ("/autoecology.png", "image/png"), ("/pvpi.png", "image/png")]
+)
+def test_the_page_and_logos_are_served(dashboard, path, content_type):
     port = dashboard().port
     with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}") as response:
         assert response.status == 200 and response.headers["Content-Type"].startswith(content_type)

@@ -137,6 +137,7 @@ class DashboardServer(ThreadingHTTPServer):
 _FILES = {
     "/": ("dashboard.html", "text/html; charset=utf-8", "no-store"),
     "/autoecology.png": ("autoecology.png", "image/png", "max-age=86400"),
+    "/pvpi.png": ("pvpi.png", "image/png", "max-age=86400"),
 }
 
 
