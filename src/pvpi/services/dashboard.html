@@ -19,8 +19,14 @@
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 main { max-width: 1200px; margin: 0 auto; padding: 16px; }
-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
-h1 { font-size: 1.4rem; margin: 0; }
+header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+h1 { display: flex; align-items: center; gap: 14px; font-size: 2.4rem; line-height: 1; margin: 0; }
+.brand-logo { height: 52px; width: auto; }
+@media (prefers-color-scheme: dark) { .brand-logo { filter: invert(1); } } /* black on transparent: white here */
+@media (max-width: 600px) {
+  h1 { font-size: 1.8rem; gap: 10px; }
+  .brand-logo { height: 40px; }
+}
 h2 { font-size: 1.1rem; margin: 28px 0 10px; }
 .muted { color: var(--muted); font-size: 0.85rem; }
 .bad { color: var(--bad); }
@@ -47,7 +53,7 @@ h2 { font-size: 1.1rem; margin: 28px 0 10px; }
 <body>
 <main>
   <header>
-    <h1>☀️ PV Pi</h1>
+    <h1><img class="brand-logo" src="/autoecology.png" alt="AutoEcology">PV Pi</h1>
     <span id="updated" class="muted">Loading…</span>
   </header>
 

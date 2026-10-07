@@ -133,14 +133,21 @@ class DashboardServer(ThreadingHTTPServer):
         super().server_close()
 
 
+# Path -> the package file served there, its type and how long a browser may keep it
+_FILES = {
+    "/": ("dashboard.html", "text/html; charset=utf-8", "no-store"),
+    "/autoecology.png": ("autoecology.png", "image/png", "max-age=86400"),
+}
+
+
 class _Handler(BaseHTTPRequestHandler):
     server: DashboardServer
 
     def do_GET(self):
         url = urlparse(self.path)
-        if url.path == "/":
-            page = files("pvpi.services").joinpath("dashboard.html").read_bytes()
-            self._send(200, page, "text/html; charset=utf-8")
+        if url.path in _FILES:
+            name, content_type, cache = _FILES[url.path]
+            self._send(200, files("pvpi.services").joinpath(name).read_bytes(), content_type, cache)
         elif url.path == "/api/live":
             try:
                 readings = self.server.live()
@@ -166,11 +173,11 @@ class _Handler(BaseHTTPRequestHandler):
     def _json(self, status: int, body: dict) -> None:
         self._send(status, json.dumps(body, separators=(",", ":")).encode(), "application/json")
 
-    def _send(self, status: int, body: bytes, content_type: str) -> None:
+    def _send(self, status: int, body: bytes, content_type: str, cache: str = "no-store") -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         self.wfile.write(body)
 

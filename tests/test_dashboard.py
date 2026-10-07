@@ -61,6 +61,7 @@ def dashboard(tmp_path):
                 status, body = err.code, err.read().decode()
             return status, (body if path == "/" else json.loads(body))
 
+        get.port = server.server_port
         return get
 
     yield start
@@ -69,9 +70,12 @@ def dashboard(tmp_path):
         server.server_close()
 
 
-def test_the_page_is_served(dashboard):
-    status, page = dashboard()("/")
-    assert status == 200 and "/api/live" in page
+@pytest.mark.parametrize("path, content_type", [("/", "text/html"), ("/autoecology.png", "image/png")])
+def test_the_page_and_logo_are_served(dashboard, path, content_type):
+    port = dashboard().port
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}") as response:
+        assert response.status == 200 and response.headers["Content-Type"].startswith(content_type)
+        assert response.read()
 
 
 def test_live_readings(dashboard):
