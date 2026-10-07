@@ -4,33 +4,58 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PV Pi Dashboard</title>
+<script>
+// The theme picked with the toggle, before the page draws (so it doesn't flash the other one)
+try { const theme = localStorage.getItem("pvpi-theme"); if (theme) document.documentElement.dataset.theme = theme; } catch (e) {}
+</script>
 <style>
+/* Light unless the page is set to dark, or it follows a device in dark mode */
 :root {
+  color-scheme: light;
   --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #677085; --line: #e3e6ec;
-  --pv: #d99a00; --bat: #1677d2; --temp: #d93c3c; --bad: #b42318;
+  --pv: #d99a00; --bat: #1677d2; --temp: #d93c3c; --bad: #b42318; --logo: none;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #12151b; --card: #1b1f27; --text: #e6e9ef; --muted: #98a1b3; --line: #2c323d;
+  --pv: #f5b82e; --bat: #4ea8f5; --temp: #f06464; --bad: #ff8a80; --logo: invert(1);
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #12151b; --card: #1b1f27; --text: #e6e9ef; --muted: #98a1b3; --line: #2c323d;
-    --pv: #f5b82e; --bat: #4ea8f5; --temp: #f06464; --bad: #ff8a80;
+    --pv: #f5b82e; --bat: #4ea8f5; --temp: #f06464; --bad: #ff8a80; --logo: invert(1);
   }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 main { max-width: 1200px; margin: 0 auto; padding: 16px; }
-/* Three columns, the middle one always centred over the page: AutoEcology | PV PI | updated */
+/* Three columns, the middle one always centred over the page: AutoEcology | PV PI | updated + theme */
 header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px 16px; }
 h1 { margin: 0; line-height: 0; }
-.brand-logo { display: block; width: auto; }
+.brand-logo { display: block; width: auto; filter: var(--logo); }  /* black on transparent: white in dark */
 .autoecology { height: 36px; max-width: 100%; object-fit: contain; object-position: left top; justify-self: start; align-self: start; }  /* shrinks to fit on the narrowest phones */
 .pvpi { height: 64px; }
-#updated { justify-self: end; }
-@media (prefers-color-scheme: dark) { .brand-logo { filter: invert(1); } } /* black on transparent: white here */
+.side { justify-self: end; display: flex; align-items: center; gap: 12px; }
+.theme-toggle { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; cursor: pointer;
+  color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 50%; }
+.theme-toggle svg { width: 18px; height: 18px; }
+.theme-toggle .sun, :root[data-theme="dark"] .theme-toggle .moon { display: none; }
+:root[data-theme="dark"] .theme-toggle .sun { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle .moon { display: none; }
+  :root:not([data-theme="light"]) .theme-toggle .sun { display: block; }
+}
 @media (max-width: 600px) {
   .autoecology { height: 28px; }
   .pvpi { height: 44px; }
-  #updated { grid-column: 1 / -1; justify-self: center; }  /* its own line under the logos */
+  /* The toggle stays top right; the update time gets its own line under the logos */
+  .side { display: contents; }
+  .autoecology { grid-area: 1 / 1; }
+  h1 { grid-area: 1 / 2; }
+  .theme-toggle { grid-area: 1 / 3; justify-self: end; align-self: start; width: 32px; height: 32px; }
+  #updated { grid-area: 2 / 1 / 3 / -1; justify-self: center; }
 }
 h2 { font-size: 1.1rem; margin: 28px 0 10px; }
 .muted { color: var(--muted); font-size: 0.85rem; }
@@ -60,7 +85,13 @@ h2 { font-size: 1.1rem; margin: 28px 0 10px; }
   <header>
     <img class="brand-logo autoecology" src="/autoecology.png" alt="AutoEcology">
     <h1><img class="brand-logo pvpi" src="/pvpi.png" alt="PV Pi"></h1>
-    <span id="updated" class="muted">Loading…</span>
+    <div class="side">
+      <span id="updated" class="muted">Loading…</span>
+      <button class="theme-toggle" id="theme" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+    </div>
   </header>
 
   <div class="tiles">
@@ -268,6 +299,24 @@ function drawChart(chart, { readout, svg }, times, values) {
   svg.addEventListener("pointermove", show);
   svg.addEventListener("pointerleave", () => { cursor.setAttribute("visibility", "hidden"); readout.textContent = ""; });
 }
+
+// ---- Light / dark toggle: follows the device until picked, then remembered in this browser ----
+const deviceDark = window.matchMedia("(prefers-color-scheme: dark)");
+const currentTheme = () => document.documentElement.dataset.theme || (deviceDark.matches ? "dark" : "light");
+function showTheme() {
+  const label = currentTheme() === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  $("theme").setAttribute("aria-label", label);
+  $("theme").title = label;
+  if (lastColumns) drawCharts(lastColumns);  // the charts take their colours when drawn
+}
+$("theme").addEventListener("click", () => {
+  const theme = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = theme;
+  try { localStorage.setItem("pvpi-theme", theme); } catch (e) {}
+  showTheme();
+});
+deviceDark.addEventListener("change", showTheme);
+showTheme();
 
 let resizing;
 window.addEventListener("resize", () => {
