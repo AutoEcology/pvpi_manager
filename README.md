@@ -53,7 +53,7 @@ The PV Pi manager requires sudo for shutdown commands (and for setting the Pi's 
 
 Clone the repo:
 ```shell
-git clone https://github.com/LukeDitria/pvpi_manager.git
+git clone https://github.com/AutoEcology/pvpi_manager.git
 cd pvpi_manager
 uv sync
 uv run pvpi
