@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/pvpi_white.png">
+    <img src="src/pvpi/services/pvpi.png" alt="PV PI" width="300">
+  </picture>
+</p>
+
 # pvpi_manager
 The official Python SDK for the PV Pi.<br>
 The PV Pi or the PhotoVoltaic Pi is the first Raspberry Pi HAT that can provide power
