@@ -51,6 +51,13 @@ class PvPiConfig(BaseSettings, extra="forbid"):
         default_factory=lambda: Path(user_data_dir("pvpi")), description="Pv Pi CSV log file path"
     )
     keep_for_days: int = Field(7, description="Num of days logging to retain", ge=1)
+    heartbeat_mins: int = Field(
+        1,
+        description="Minutes between the manager's heartbeat records in the power log, which show when it was running"
+        " (1 to 60)",
+        ge=1,
+        le=60,
+    )
 
     # Watchdog
     enable_watchdog: bool = Field(False, description="Enable power watchdog")

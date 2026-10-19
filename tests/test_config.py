@@ -29,6 +29,8 @@ def test_settings_the_board_would_refuse_are_refused_here():
         {"wake_up_volt": 15},
         {"watchdog_period_mins": 61},
         {"keep_for_days": 0},
+        {"heartbeat_mins": 0},
+        {"heartbeat_mins": 61},
         {"low_bat_volt": 13.3, "wake_up_volt": 13.2},  # it would wake into another shutdown
     ):
         with pytest.raises(ValidationError):
