@@ -25,32 +25,34 @@ def init_logging(logger: logging.Logger, level: int = logging.INFO):
     logger.addHandler(console_handler)
 
 
+READINGS_HEADERS = ["Timestamp", "Battery Voltage", "Battery Current", "PV Voltage", "PV Current", "PV PI Temperature"]
+# The power log: when the Pi booted and shut down, and the manager's heartbeat while it runs
+POWER_HEADERS = ["Timestamp", "Event", "Reason", "Boot time"]
+TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
 class RotatingCSVLogger:
-    def __init__(self, log_dir: Path, retention_days: int = 7):
+    def __init__(self, log_dir: Path, retention_days: int = 7, headers: list[str] = READINGS_HEADERS):
         """
         Daily CSV logger with automatic deletion of old files.
 
         Args:
             log_dir: Directory to store CSV logs
             retention_days: Number of days to keep old logs
+            headers: The columns, the first one the row's time
         """
-        self.log_dir = log_dir
+        self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.retention_days = retention_days
-        self.headers = [
-            "Timestamp",
-            "Battery Voltage",
-            "Battery Current",
-            "PV Voltage",
-            "PV Current",
-            "PV PI Temperature",
-        ]
+        self.headers = list(headers)
         self.cleanup_old_logs()
 
     def log_stats(self, bat_v: float, bat_c: float, pv_v: float, pv_c: float, temp):
-        datetime_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        row = [datetime_str, bat_v, bat_c, pv_v, pv_c, temp]
-        self._log_row(row)
+        self.log(bat_v, bat_c, pv_v, pv_c, temp)
+
+    def log(self, *values) -> None:
+        """Append a row (the time, then `values`) to today's file."""
+        self._log_row([datetime.now().strftime(TIME_FORMAT), *values])
 
     def _get_today_file(self) -> Path:
         """Return the Path object for today's CSV file."""
