@@ -98,7 +98,7 @@ class PvPiClient:
         """Return True if PV PI is responsive"""
         return self._interface.write(message=b"GET_ALIVE") == "ALIVE"
 
-    def get_device_version(self)-> tuple[str, str, str]:
+    def get_device_version(self) -> tuple[str, str, str]:
         """Return the device name and version"""
         resp = self._interface.write(message=b"GET_VERSION")
         _, device_name, hw_version, fw_version = resp.split(",")
@@ -130,7 +130,7 @@ class PvPiClient:
             pv_v = int(value)
             # fix for overflow on FW 1.12
             if pv_v < 0:
-                pv_v += 65536 
+                pv_v += 65536
 
             return pv_v / 1000
         else:
@@ -175,7 +175,7 @@ class PvPiClient:
                 return round(soc2 + (soc1 - soc2) * (voltage - v2) / (v1 - v2), 2)
 
         return 0.0
-        
+
     # ---------------------- Time Sync Commands ---------------------- #
     def set_mcu_time(self, dt: datetime | None = None):
         """Returns success bool for setting STM32 RTC"""

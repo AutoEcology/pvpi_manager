@@ -77,7 +77,7 @@ def run(config: PvPiConfig):
     if config.enable_watchdog:
         client.set_watchdog(config.watchdog_period_mins)
         # Make sure watchdog is reset twice every watchdog period
-        watchdog_period_sec = (config.watchdog_period_mins * 60)//2
+        watchdog_period_sec = (config.watchdog_period_mins * 60) // 2
         prev_watchdog_time = datetime.now() - timedelta(seconds=watchdog_period_sec)
         _logger.info("Watchdog polling interval set to %s min", config.watchdog_period_mins)
     else:

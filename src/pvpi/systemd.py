@@ -113,7 +113,7 @@ def _render_service(name: str, user: str, exec_start: str) -> str:
             f"ExecStart={exec_start}\n"
             "Restart=always\n"
             "RestartSec=10\n"
-            "Environment=PYTHONUNBUFFERED=1\n" # Ensures logs show up in journalctl immediately
+            "Environment=PYTHONUNBUFFERED=1\n"  # Ensures logs show up in journalctl immediately
             "\n"
             "[Install]\n"
             "WantedBy=multi-user.target\n"
@@ -194,9 +194,9 @@ def install_systemd(config_path: Path | None = None, dashboard: bool | None = No
         elif name == "pvpi_manager.service":
             exec_start = make_exec_start("manager")
         elif name == "pvpi_dashboard.service":
-            exec_start = make_exec_start("dashboard") 
+            exec_start = make_exec_start("dashboard")
         else:
-            continue    
+            continue
 
         (target_dir / name).write_text(_render_service(name, user, exec_start))
 

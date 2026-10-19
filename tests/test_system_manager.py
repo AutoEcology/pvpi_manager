@@ -29,7 +29,9 @@ class FakeBoard:
 def run(monkeypatch, tmp_path):
     def go(voltages, **settings):
         board = go.board = FakeBoard(voltages)
-        monkeypatch.setattr(system_manager, "ZmqSerialProxyInterface", lambda: type("I", (), {"close": lambda s: None})())
+        monkeypatch.setattr(
+            system_manager, "ZmqSerialProxyInterface", lambda: type("I", (), {"close": lambda s: None})()
+        )
         monkeypatch.setattr(system_manager, "PvPiClient", lambda interface: board)
         monkeypatch.setattr(system_manager.time, "sleep", lambda s: None)
 
