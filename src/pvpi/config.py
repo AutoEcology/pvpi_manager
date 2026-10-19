@@ -18,57 +18,69 @@ _REPLACED = ("schedule_time", "shutdown_time", "wakeup_time")
 
 
 class PvPiConfig(BaseSettings, extra="forbid"):
-    uart_port: str = Field(default_factory=default_uart_port, description="UART port path")
+    uart_port: str = Field(
+        default_factory=default_uart_port, description="The serial port the PV Pi is on (found automatically)"
+    )
 
-    log_period: int = Field(5, description="Pv Pi system metrics logging interval minutes", gt=0)  # mins
-    startup_delay: int = Field(20, description="Seconds delay after service start before proceeding", ge=0)  # secs
+    log_period: int = Field(5, description="Minutes between readings in the log", gt=0)  # mins
+    startup_delay: int = Field(
+        20, description="Seconds the manager waits after starting before it does anything", ge=0
+    )  # secs
 
-    low_bat_volt: float = Field(12.9, description="Voltage at which to shutdown the Raspberry Pi", ge=0)  # volts
+    low_bat_volt: float = Field(12.9, description="Battery voltage at which the Pi shuts down", ge=0)  # volts
     low_bat_readings: int = Field(
-        3, description="Low battery readings in a row (one every 10 s) before shutting down", ge=1
+        3, description="How many low readings in a row (one every 10 s) before the Pi shuts down", ge=1
     )
     wake_up_volt: float = Field(
-        13.2, description="Voltage at which power supply will be turned on (11.5 to 14.4)", ge=11.5, le=14.4
+        13.2, description="Battery voltage at which the PV Pi turns the Pi back on (11.5 to 14.4)", ge=11.5, le=14.4
     )  # volts
 
     # Turning the power supply off on shutdown
-    power_off_on_shutdown: bool = Field(True, description="Turn off power supply on shutdown")
+    power_off_on_shutdown: bool = Field(True, description="Turn the Pi's power off after it shuts down")
     power_off_delay: int = Field(
-        20, description="Seconds delay after shutdown to turn off power supply (1 to 60)", ge=1, le=60
+        20, description="Seconds between the shutdown and the power going off (1 to 60)", ge=1, le=60
     )
 
     # The power schedule: a file of on and off times (see pvpi/schedule.py)
     schedule: str | None = Field(
-        None, pattern=SCHEDULE_NAME, description="The schedule in use (its file's name); empty for always on"
+        None, pattern=SCHEDULE_NAME, description="The schedule in use (its file name); empty to stay on all the time"
     )
     schedules_dir: Path | None = Field(
-        None, description="The folder of schedule files; empty for 'schedules' next to this config file"
+        None, description="Where schedule files are kept; empty for a 'schedules' folder next to this config"
     )
 
     # Enable CSV logging of voltages, currents, and temperatures
-    log_pvpi_stats: bool = Field(True, description="Enable CSV logging of Pv Pi metrics")
+    log_pvpi_stats: bool = Field(True, description="Keep CSV logs of the readings and the power log")
     data_log_path: Path = Field(
-        default_factory=lambda: Path(user_data_dir("pvpi")), description="Pv Pi CSV log file path"
+        default_factory=lambda: Path(user_data_dir("pvpi")), description="Where the logs are kept"
     )
-    keep_for_days: int = Field(7, description="Num of days logging to retain", ge=1)
+    keep_for_days: int = Field(7, description="Days of logs to keep", ge=1)
     heartbeat_mins: int = Field(
         1,
-        description="Minutes between the manager's heartbeat records in the power log, which show when it was running"
-        " (1 to 60)",
+        description='Minutes between the manager\'s "still running" entries in the power log (1 to 60)',
         ge=1,
         le=60,
     )
 
     # Watchdog
-    enable_watchdog: bool = Field(False, description="Enable power watchdog")
-    watchdog_period_mins: int = Field(2, description="Watchdog inspection interval in minutes (1 to 60)", ge=1, le=60)
+    enable_watchdog: bool = Field(False, description="Have the PV Pi restart the Pi if the manager stops answering")
+    watchdog_period_mins: int = Field(
+        2,
+        description="Minutes the PV Pi waits to hear from the manager before restarting the Pi (1 to 60)",
+        ge=1,
+        le=60,
+    )
 
     # Clocks
-    time_pi2mcu: bool = Field(False, description="Set Pv Pi's MCU clock to match Raspberry Pi's clock on boot")
-    time_mcu2pi: bool = Field(False, description="Set Raspberry Pi's clock to match Pv Pi's MCU clock on boot")
+    time_pi2mcu: bool = Field(False, description="When the Pi starts, set the PV Pi's clock from the Pi's")
+    time_mcu2pi: bool = Field(
+        False, description="When the Pi starts, set its clock from the PV Pi's (use this without a network)"
+    )
 
     # Dashboard
-    full_dashboard: bool = Field(True, description="Plot out historical data as well as live stats")
+    full_dashboard: bool = Field(
+        True, description="Show the history charts on the dashboard, not just the live readings"
+    )
 
     _source: Path | None = PrivateAttr(None)  # the file it was read from
 
