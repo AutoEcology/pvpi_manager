@@ -22,7 +22,7 @@ The dashboard is not installed by default, install it with:
 uv run pvpi install --dashboard
 ```
 
-Then open `http://<your-pi>:8501` (e.g. `http://raspberrypi.local:8501`) on the same network. It's light enough to run alongside your own programs, even on a Pi Zero. There's no login, so anyone who can reach port 8501 can change your schedule.
+Then open `http://<your-pi>:8501` (e.g. `http://raspberrypi.local:8501`) on the same network. It's light-weight enough to run alongside your own programs, even on a Pi Zero. There's no login, so anyone who can reach port 8501 can change your schedule.
 
 ![The dashboard's readings page](images/dashboard_readings.png)
 
