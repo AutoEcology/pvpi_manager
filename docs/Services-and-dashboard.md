@@ -16,7 +16,7 @@ None of them are needed to use the PV Pi from your own code. Each can also be ru
 
 ## The dashboard
 
-The dashboard is off unless you ask for it:
+The dashboard is not installed by default, install it with:
 
 ```shell
 uv run pvpi install --dashboard
