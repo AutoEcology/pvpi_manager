@@ -31,3 +31,8 @@ New here? Start with [Getting started](docs/Getting-started.md).
 
 ## Support
 The [User Manual](https://static1.squarespace.com/static/6767a8ab1279321b70138597/t/69dae05a35751f0597eea13b/1775951962539/PV_PI_User_Manual.pdf), the [PV Pi tutorials](https://youtube.com/playlist?list=PLbFaSy7wJeFz2h7MJX0VhsMdpvZVvqfuv&si=jxs1IlyUbiJkMmiR) on YouTube, and the [AutoEcology Discord](https://discord.gg/jhXaSxVU9g).
+
+## Updates
+- **2026-10-19**: More comprehensive scheduling, as well as a schedule builder and a power log chart on the dashboard. **Warning:** this breaks old scheduling set-ups: configs with `schedule_time`, `shutdown_time` and `wakeup_time` are refused, so move those times into a [schedule file](docs/Scheduling.md). `set-mppt`, `set-charging` and `set-ts` now need `--enable` or `--disable`, and the UART proxy only accepts connections from the Pi itself.
+- **2026-10-07**: Dashboard upgrade, now light-weight enough to run on a Pi Zero. **Warning:** the dashboard is only installed if you ask for it (`pvpi install --dashboard`). If your old dashboard ran as root, run `sudo chown -R $USER: .venv` once before `uv sync`.
+- **2026-10-02**: More reliable manager: no shutdown on a single low reading, and it carries on past a bad reading.
