@@ -1,3 +1,5 @@
+[Home](Home.md)
+
 # Troubleshooting
 
 The services are managed by `systemd`, Linux's service manager. To see if they're running:
@@ -23,3 +25,5 @@ sudo systemctl disable --now pvpi_dashboard.service
 ```
 
 `pvpi install` leaves a service you've disabled like this disabled.
+
+Back to [Home](Home.md)

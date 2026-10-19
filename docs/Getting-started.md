@@ -1,3 +1,5 @@
+[Home](Home.md)
+
 # Getting started
 
 pvpi_manager runs on Raspberry Pi compatible boards. It's been tested on a Pi 5 (Raspberry Pi OS 64-bit, 2025-12-04) and a Pi Zero 2 W.
@@ -45,7 +47,15 @@ uv run pvpi connection-test
 
 This shows your PV Pi's readings. It also resets the PV Pi to its default settings: its clock from the Pi's, MPPT on, charging on, battery temperature monitoring off, a 10 A charge current and a 13 V wake-up voltage. (The manager puts the wake-up voltage back to your `wake_up_volt` the next time it starts.)
 
-Next, set up the [services and dashboard](Services-and-dashboard.md).
+## 5. Set the PV Pi's clock
+
+The PV Pi keeps its own time, which it uses to wake your Pi on [schedule](Scheduling.md). While your Pi's clock is correct (e.g. it has automatically sync'd to your network), copy it across:
+
+```shell
+uv run pvpi set-mcu-clock
+```
+
+With an RTC backup battery on the PV Pi, once is enough. Without one, do it again whenever the main battery has been disconnected.
 
 ## Updating
 
@@ -56,3 +66,5 @@ uv run pvpi restart
 ```
 
 Coming from an older version whose dashboard ran as root? If `uv sync` stops with "Permission denied" on a `__pycache__` folder, run `sudo chown -R $USER: .venv` once and sync again.
+
+Next: [Services and dashboard](Services-and-dashboard.md)

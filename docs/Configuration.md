@@ -1,3 +1,5 @@
+[Home](Home.md)
+
 # Configuration
 
 `pvpi install` creates a `config.json` with the default settings: in the pvpi_manager folder if you cloned the repo, or in `~/.config/pvpi/` if you installed with pip (`pvpi install --config <file>` puts it elsewhere). To see which file your services use:
@@ -33,3 +35,5 @@ Edit it, then `uv run pvpi restart` (schedule changes don't need a restart). Set
 <!-- /options -->
 
 To update this table after changing an option: `uv run python scripts/gen_config_docs.py`.
+
+Next: [Commands](Commands.md)

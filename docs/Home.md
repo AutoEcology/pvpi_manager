@@ -14,3 +14,5 @@ pvpi_manager is the Python software that talks to it: a command line tool, a few
 - [Troubleshooting](Troubleshooting.md): checking the services and their logs
 
 Need more help? There's the [User Manual](https://static1.squarespace.com/static/6767a8ab1279321b70138597/t/69dae05a35751f0597eea13b/1775951962539/PV_PI_User_Manual.pdf), the [PV Pi tutorials](https://youtube.com/playlist?list=PLbFaSy7wJeFz2h7MJX0VhsMdpvZVvqfuv&si=jxs1IlyUbiJkMmiR) on the AutoEcology YouTube channel, and the [AutoEcology Discord](https://discord.gg/jhXaSxVU9g).
+
+Next: [Getting started](Getting-started.md)

@@ -1,14 +1,16 @@
+[Home](Home.md)
+
 # Scheduling
 
-A schedule sets the times your Pi is on. In between, the manager shuts it down and sets the PV Pi's wake alarm, so it starts again on time. With no schedule, your Pi just stays on (and only shuts down when the battery runs low).
+A schedule sets the times your Pi is on. In between, the manager shuts it down and sets the PV Pi's wake alarm to boot your device at the set time. With no schedule, your Pi just stays on (and only shuts down when the battery runs low).
 
-The easiest way is the Schedule page on the [dashboard](Services-and-dashboard.md): create a schedule, see its next 24 hours, and choose which one is in use.
+The easiest way to create a schedule, is by using the Schedule page on the [dashboard](Services-and-dashboard.md). You can select an existing schedule or create a new one and visualise the next 24 hours.
 
 ![The dashboard's schedule page](images/dashboard_schedule.png)
 
 ## Schedule files
 
-Each schedule is a JSON file in the `schedules` folder next to your config (`schedules_dir` picks another folder). Your Pi is on whenever any of its rules is on. There are two kinds:
+Each schedule is a JSON file in the `schedules` folder. Your Pi is on whenever any of its rules is on. There are two kinds:
 
 - `daily`: on from one time to another (into the next day if `off` is earlier than `on`)
 - `periodic`: on and off in turn, e.g. 5 minutes on, 5 off, between `start` and `end` (all day if they're the same)
@@ -40,3 +42,5 @@ uv run pvpi schedule field    # or of another schedule
 ```
 
 Older configs with `schedule_time`, `shutdown_time` and `wakeup_time` are refused: put those times in a `daily` rule instead (`on` = the old `wakeup_time`, `off` = the old `shutdown_time`).
+
+Next: [Power log](Power-log.md)

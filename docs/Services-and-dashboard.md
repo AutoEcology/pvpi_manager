@@ -1,3 +1,5 @@
+[Home](Home.md)
+
 # Services and dashboard
 
 pvpi_manager can run in the background as system services, starting every time your Pi boots. Install them with:
@@ -27,3 +29,5 @@ Then open `http://<your-pi>:8501` (e.g. `http://raspberrypi.local:8501`) on the 
 ![The dashboard's readings page](images/dashboard_readings.png)
 
 The history charts need `log_pvpi_stats` on. To take the dashboard off again: `uv run pvpi install --no-dashboard`. Running `pvpi install` again (e.g. after an update) leaves it as you set it up.
+
+Next: [Scheduling](Scheduling.md)

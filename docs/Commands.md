@@ -1,3 +1,5 @@
+[Home](Home.md)
+
 # Commands
 
 Everything below runs as `uv run pvpi <command>` from the pvpi_manager folder. `uv run pvpi --help` lists them, and `--help` after any command explains it.
@@ -21,3 +23,15 @@ Everything below runs as `uv run pvpi <command>` from the pvpi_manager folder. `
 | `uninstall` | Removes the services |
 | `config-path` | Shows which [config](Configuration.md) file the services use |
 | `dashboard`, `manager`, `uart-proxy` | Run a service by hand instead of in the background |
+
+## Examples
+
+```shell
+uv run pvpi get-stats                            # how's the battery and solar doing?
+uv run pvpi set-charge-current --current 2.5     # charge a small battery more gently
+uv run pvpi set-charging --disable               # stop charging for now
+uv run pvpi schedule daytime                     # preview the "daytime" schedule
+uv run pvpi install --dashboard                  # install the services with the dashboard
+```
+
+Next: [Python client](Python-client.md)
