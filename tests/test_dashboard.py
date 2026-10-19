@@ -127,6 +127,7 @@ def test_history_reads_the_days_asked_for(dashboard, tmp_path, query, times):
 def test_history_with_no_logs_is_empty(dashboard):
     status, history = dashboard()("/api/history")
     assert status == 200 and history["columns"]["t"] == [] and history["first"] is None
+    assert history["power"]["on"] == []
 
 
 @pytest.mark.parametrize("query, status", [("?start=yesterday", 400), ("", 404)])
@@ -178,3 +179,19 @@ def test_schedule_refusals(dashboard, tmp_path, method, path, body, status):
 def test_check_names_the_rule_thats_wrong(dashboard):
     checked = dashboard()("/api/schedules/check", "POST", {"rules": [DAY["rules"][0], {"kind": "daily", "on": "x"}]})[1]
     assert checked["errors"] and all(e.startswith("Rule 2") for e in checked["errors"])
+
+
+def test_history_has_the_power_log(dashboard, tmp_path):
+    _logs(tmp_path / "logs")
+    power = tmp_path / "logs" / "power"
+    power.mkdir()
+    (power / "2026-09-12.csv").write_text(
+        "Timestamp,Event,Reason,Boot time\n"
+        "2026-09-12 07:00:20,boot,,2026-09-12 07:00:00\n"
+        "2026-09-12 07:00:21,running,,2026-09-12 07:00:00\n"
+        "2026-09-12 19:00:02,shutdown,schedule,2026-09-12 07:00:00\n"
+    )
+    status, history = dashboard()("/api/history")
+    assert status == 200
+    assert history["power"]["on"] == [["2026-09-12T07:00:00", "2026-09-12T19:00:02", "schedule"]]
+    assert history["power"]["boots"] == ["2026-09-12T07:00:00"]

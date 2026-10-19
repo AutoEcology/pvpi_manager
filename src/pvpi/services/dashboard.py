@@ -22,6 +22,7 @@ from pydantic import ValidationError
 
 from pvpi.client import PvPiClient
 from pvpi.config import SCHEDULE_NAME, PvPiConfig
+from pvpi.power_log import boot_time, read_power
 from pvpi.schedule import Schedule
 from pvpi.transports import ZmqSerialProxyInterface
 
@@ -123,6 +124,19 @@ def check_schedule(config: PvPiConfig, body, now: datetime | None = None) -> dic
     }
 
 
+def _power(config: PvPiConfig, start: str | None, end: str | None) -> dict:
+    """The power log over the days of the history (start and end: ISO dates, both included)."""
+    if start is None or end is None:
+        return {"on": [], "running": [], "boots": [], "shutdowns": []}
+    try:
+        current = boot_time()
+    except OSError:
+        current = None
+    begin = datetime.fromisoformat(start)
+    finish = datetime.fromisoformat(end) + timedelta(days=1)
+    return read_power(config.data_log_path, begin, finish, config.heartbeat_mins, current_boot=current)
+
+
 class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -207,7 +221,10 @@ class _Handler(BaseHTTPRequestHandler):
             except ValueError:
                 self._json(400, {"error": "start and end are dates: YYYY-MM-DD"})
                 return
-            self._json(200, read_history(Path(self.server.config.data_log_path), start, end))
+            config = self.server.config
+            history = read_history(Path(config.data_log_path), start, end)
+            history["power"] = _power(config, history["start"], history["end"])
+            self._json(200, history)
         elif url.path == "/api/schedules":
             self._json(200, self._schedules())
         elif name := self._schedule_name(url.path):
