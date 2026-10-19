@@ -1,5 +1,5 @@
 import logging
-import os
+import subprocess
 import time
 from datetime import datetime, timedelta
 
@@ -143,19 +143,32 @@ def run(config: PvPiConfig):
         raise
     else:
         _logger.info("Closing down...")
-        client.stop_watchdog()
-        _logger.info("Watchdog stopped")
-
-        if config.schedule_time:
-            client.set_alarm(config.wakeup_time)
+        # A failed request is logged and the shutdown goes ahead: on a low battery the Pi
+        # must still shut down.
+        if _attempt("stop the watchdog", client.stop_watchdog):
+            _logger.info("Watchdog stopped")
+        if config.schedule_time and _attempt("set the wake alarm", client.set_alarm, config.wakeup_time):
             _logger.info("Alarm set %s", config.wakeup_time)
-        if config.power_off_on_shutdown:
-            client.power_off(delay_s=config.power_off_delay)
+        if config.power_off_on_shutdown and _attempt(
+            "schedule the power off", client.power_off, delay_s=config.power_off_delay
+        ):
             _logger.info("Powering off Pv Pi")
 
         _logger.info("Shutting down...")
         time.sleep(1)
-        os.system("sudo shutdown now")  # warning: requires permissions
+        done = subprocess.run(["sudo", "-n", "shutdown", "now"], check=False)  # needs passwordless sudo
+        if done.returncode != 0:
+            raise RuntimeError(f"'sudo -n shutdown now' failed ({done.returncode}): is passwordless sudo set up?")
         while True:
             _logger.info("sleeping, waiting for shutdown...")
             time.sleep(100)
+
+
+def _attempt(what: str, request, *args, **kwargs) -> bool:
+    """Make one request to the board; log it and return False if it fails."""
+    try:
+        request(*args, **kwargs)
+        return True
+    except Exception:
+        _logger.exception("Couldn't %s", what)
+        return False
