@@ -184,60 +184,67 @@ function timeLabels(svg, t0, t1, x, W, H) {
 }
 
 // ---- Power: when the Pi was on and the PV PI manager running, with each boot and shutdown ----
-const ENDED = { schedule: "shut down by the schedule", "low battery": "shut down on a low battery",
-  unexpected: "ended unexpectedly (power lost or a crash)", running: "still on" };
+const ENDED = { schedule: "shut down by the schedule", "low battery": "shut down on low battery", unexpected: "ended unexpectedly" };
 function drawPower(power, { svg, title, readout }, times) {
-  const W = Math.max(240, Math.round(svg.getBoundingClientRect().width) || 600), H = 150, L = 8, R = 8;
-  const TOP = 6, BAR = 90, AXIS = TOP + BAR + 16, KEY = H - 6;  // the bar, its time labels, and the legend
+  const W = Math.max(240, Math.round(svg.getBoundingClientRect().width) || 600), L = 8, R = 8;
+  const BAR = 60, GAP = 8, TOP = 6, BOTTOM = TOP + 2 * BAR + GAP;  // the running bar, then the scheduled one
+  const AXIS = BOTTOM + 16, H = AXIS + 28, KEY = H - 6;
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.style.height = H + "px";
-  const on = power.on.map(([a, b, how]) => [toTime(a), toTime(b), how]);
-  const running = power.running.map(([a, b]) => [toTime(a), toTime(b)]);
+  const span = list => (list || []).map(([a, b, how]) => [toTime(a), toTime(b), how]);
+  const on = span(power.on), running = span(power.running), expected = span(power.expected);
   const boots = power.boots.map(toTime), downs = power.shutdowns.map(([t, why]) => [toTime(t), why]);
-  if (!on.length && !running.length) {
+  if (!on.length && !running.length && !expected.length) {
     el("text", { x: W / 2, y: H / 2, "text-anchor": "middle" }, svg).textContent = "Nothing in the power log for these days yet";
     return;
   }
   const hours = on.reduce((sum, [a, b]) => sum + (b - a), 0) / 3600000;
   title.firstChild.textContent = `Pi on · ${hours.toFixed(1)} h, ${boots.length} start${boots.length === 1 ? "" : "s"}`;
   // The same time axis as the readings' charts when there are readings
-  const all = [...on.flat(), ...running.flat()].filter(v => typeof v === "number");
+  const all = [...on, ...running].flatMap(([a, b]) => [a, b]);
   const t0 = times.length ? times[0] : Math.min(...all);
   let t1 = times.length ? times[times.length - 1] : Math.max(...all);
   if (t1 <= t0) t1 = t0 + 1;
   const x = t => L + (Math.min(Math.max(t, t0), t1) - t0) / (t1 - t0) * (W - L - R);
-  el("rect", { x: L, y: TOP, width: W - L - R, height: BAR, class: "track" }, svg);
-  for (const [a, b] of running) el("rect", { x: x(a), y: TOP, width: Math.max(1.5, x(b) - x(a)), height: BAR, class: "alive" }, svg);
-  for (const t of boots) el("line", { x1: x(t), x2: x(t), y1: TOP - 4, y2: TOP + BAR + 4, class: "boot-mark" }, svg);
-  for (const [t] of downs) el("line", { x1: x(t), x2: x(t), y1: TOP - 4, y2: TOP + BAR + 4, class: "down-mark" }, svg);
+  for (const [spans, cls, top] of [[running, "alive", TOP], [expected, "expected", TOP + BAR + GAP]]) {
+    el("rect", { x: L, y: top, width: W - L - R, height: BAR, class: "track" }, svg);
+    for (const [a, b] of spans) {
+      if (b < t0 || a > t1) continue;
+      el("rect", { x: x(a), y: top, width: Math.max(1.5, x(b) - x(a)), height: BAR, class: cls }, svg);
+    }
+  }
+  for (const t of boots) el("line", { x1: x(t), x2: x(t), y1: TOP - 4, y2: BOTTOM + 4, class: "boot-mark" }, svg);
+  for (const [t] of downs) el("line", { x1: x(t), x2: x(t), y1: TOP - 4, y2: BOTTOM + 4, class: "down-mark" }, svg);
   timeLabels(svg, t0, t1, x, W, AXIS + 4);
-  // The legend
   let lx = L;
-  for (const [cls, label] of [["alive", "PV PI manager running"], ["boot-mark", "Boot"], ["down-mark", "Shutdown"]]) {
-    if (cls === "alive") el("rect", { x: lx, y: KEY - 9, width: 14, height: 10, class: cls }, svg);
-    else el("line", { x1: lx + 7, x2: lx + 7, y1: KEY - 11, y2: KEY + 2, class: cls }, svg);
+  for (const [cls, label] of [["alive", "Running"], ["expected", "Scheduled on"], ["boot-mark", "Boot"], ["down-mark", "Shutdown"]]) {
+    if (cls.endsWith("mark")) el("line", { x1: lx + 7, x2: lx + 7, y1: KEY - 11, y2: KEY + 2, class: cls }, svg);
+    else el("rect", { x: lx, y: KEY - 9, width: 14, height: 10, class: cls }, svg);
     const text = el("text", { x: lx + 20, y: KEY }, svg);
     text.textContent = label;
     lx += 28 + text.getComputedTextLength();
   }
 
+  // One cursor over both bars, kept within the time axis
   const clock = t => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const cursor = el("line", { class: "cursor", y1: TOP, y2: TOP + BAR, visibility: "hidden" }, svg);
+  const cursor = el("line", { class: "cursor", y1: TOP, y2: BOTTOM, visibility: "hidden" }, svg);
+  const inside = (spans, t) => spans.some(([a, b]) => a <= t && t <= b);
   const show = event => {
     const box = svg.getBoundingClientRect();
-    const px = (event.clientX - box.left) / box.width * W;
+    const px = Math.min(Math.max((event.clientX - box.left) / box.width * W, L), W - R);
     const t = t0 + (px - L) / (W - L - R) * (t1 - t0);
-    const near = (W - L - R) > 0 ? 8 * (t1 - t0) / (W - L - R) : 0;  // within 8 px
+    const near = 5 * (t1 - t0) / (W - L - R);  // within 5 px of a boot or shutdown line
     cursor.setAttribute("x1", px); cursor.setAttribute("x2", px); cursor.setAttribute("visibility", "visible");
+    const parts = [clock(t)];
     const boot = boots.find(b => Math.abs(b - t) <= near);
     const down = downs.find(([d]) => Math.abs(d - t) <= near);
-    if (boot !== undefined) { readout.textContent = "Booted " + clock(boot); return; }
-    if (down) { readout.textContent = `Shut down ${clock(down[0])} (${down[1]})`; return; }
+    if (boot !== undefined) parts.push("booted " + clock(boot));
+    if (down) parts.push(`shut down ${clock(down[0])} (${down[1]})`);
     const period = on.find(([a, b]) => a <= t && t <= b);
-    const managed = running.some(([a, b]) => a <= t && t <= b);
-    readout.textContent = period
-      ? `On ${clock(period[0])} to ${clock(period[1])}, ${ENDED[period[2]] || period[2]}` + (managed ? "" : " · manager not running")
-      : "Off · " + clock(t);
+    parts.push(!period ? "off" : (inside(running, t) ? "running" : "on, manager not running")
+      + (period[2] === "running" ? "" : ` until ${clock(period[1])} (${ENDED[period[2]] || period[2]})`));
+    parts.push(power.expected === null ? "schedule unreadable" : inside(expected, t) ? "scheduled on" : "scheduled off");
+    readout.textContent = parts.join(" · ");
   };
   svg.addEventListener("pointermove", show);
   svg.addEventListener("pointerleave", () => { cursor.setAttribute("visibility", "hidden"); readout.textContent = ""; });
