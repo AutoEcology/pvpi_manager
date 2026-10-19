@@ -73,3 +73,17 @@ def test_connection_test_says_it_resets_the_board_before_it_does(invoke):
     assert "default settings" in result.output
     sets = [m for m in invoke.sent if m.startswith(b"SET_")]
     assert sets[0].startswith(b"SET_TIME") and b"SET_WAKEUP_MILLIVOLT,13000" in sets
+
+
+def test_schedule_shows_the_next_on_periods(tmp_path):
+    from pvpi.config import PvPiConfig
+    from pvpi.schedule import Schedule
+
+    config = tmp_path / "config.json"
+    PvPiConfig(schedule="day").save(config)
+    Schedule.model_validate({"rules": [{"kind": "daily", "on": "07:00", "off": "19:00"}]}).save(
+        tmp_path / "schedules" / "day.json"
+    )
+    result = CliRunner().invoke(cli.cli, ["schedule", "--config", str(config)])
+    assert result.exit_code == 0, result.output
+    assert "07:00:00 to" in result.output and "wake alarm" in result.output

@@ -1,16 +1,20 @@
 import json
 import os
 import pathlib
-from datetime import time
+from datetime import timedelta
 from pathlib import Path
 
-from platformdirs import user_data_dir
-from pydantic import Field, model_validator
+from platformdirs import user_config_dir, user_data_dir
+from pydantic import Field, PrivateAttr, model_validator
 from pydantic_settings import (
     BaseSettings,
 )
 
+from pvpi.schedule import Schedule
 from pvpi.utils import default_uart_port
+
+SCHEDULE_NAME = r"^[A-Za-z0-9_-]+$"
+_REPLACED = ("schedule_time", "shutdown_time", "wakeup_time")
 
 
 class PvPiConfig(BaseSettings, extra="forbid"):
@@ -33,10 +37,13 @@ class PvPiConfig(BaseSettings, extra="forbid"):
         20, description="Seconds delay after shutdown to turn off power supply (1 to 60)", ge=1, le=60
     )
 
-    # Wakeup & Shutdown times
-    schedule_time: bool = Field(False, description="Enable scheduled shutdown and wakeup")
-    shutdown_time: time = time(22, 0)  # TODO
-    wakeup_time: time = time(8, 0)  # TODO
+    # The power schedule: a file of on and off times (see pvpi/schedule.py)
+    schedule: str | None = Field(
+        None, pattern=SCHEDULE_NAME, description="The schedule in use (its file's name); empty for always on"
+    )
+    schedules_dir: Path | None = Field(
+        None, description="The folder of schedule files; empty for 'schedules' next to this config file"
+    )
 
     # Enable CSV logging of voltages, currents, and temperatures
     log_pvpi_stats: bool = Field(True, description="Enable CSV logging of Pv Pi metrics")
@@ -56,12 +63,58 @@ class PvPiConfig(BaseSettings, extra="forbid"):
     # Dashboard
     full_dashboard: bool = Field(True, description="Plot out historical data as well as live stats")
 
+    _source: Path | None = PrivateAttr(None)  # the file it was read from
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_replaced(cls, data):
+        if isinstance(data, dict) and (old := [k for k in _REPLACED if k in data]):
+            raise ValueError(
+                f"{', '.join(old)}: replaced by schedule files. Put the on and off times in a schedule file "
+                "in schedules_dir and set schedule to its name (see the README's Scheduling section)"
+            )
+        return data
+
     @model_validator(mode="after")
     def _wakes_above_shutdown(self):
         # Waking at or below the shutdown voltage would shut the Pi down again as it starts.
         if self.wake_up_volt <= self.low_bat_volt:
             raise ValueError(f"wake_up_volt ({self.wake_up_volt}) must be above low_bat_volt ({self.low_bat_volt})")
         return self
+
+    @property
+    def schedules_folder(self) -> Path:
+        if self.schedules_dir is not None:
+            return Path(self.schedules_dir)
+        if self._source is not None:
+            return self._source.parent / "schedules"
+        return Path(user_config_dir("pvpi")) / "schedules"
+
+    @property
+    def min_on(self) -> timedelta:
+        """The shortest on period: time for the Pi to start up and the manager to begin."""
+        return timedelta(seconds=self.startup_delay + 60)
+
+    @property
+    def min_off(self) -> timedelta:
+        """The shortest off period: time for the Pi to shut down and the power to go off before
+        the wake alarm."""
+        return timedelta(seconds=self.power_off_delay + 60)
+
+    def schedule_path(self, name: str) -> Path:
+        return self.schedules_folder / f"{name}.json"
+
+    def check_schedule(self, schedule: Schedule) -> list[str]:
+        return schedule.problems(self.min_on, self.min_off)
+
+    def load_schedule(self) -> Schedule:
+        """The schedule in use; raises if its file is missing or unworkable."""
+        if self.schedule is None:
+            return Schedule()
+        schedule = Schedule.load(self.schedule_path(self.schedule))
+        if problems := self.check_schedule(schedule):
+            raise ValueError(f"Schedule '{self.schedule}': " + "; ".join(problems))
+        return schedule
 
     @classmethod
     def from_file(cls, path: str | None = None):
@@ -72,11 +125,12 @@ class PvPiConfig(BaseSettings, extra="forbid"):
             config_path = Path(path)
             if config_path.exists():
                 with open(path) as f:
-                    return cls.model_validate(json.load(f))
+                    config = cls.model_validate(json.load(f))
             else:
                 config = cls()
                 config.save(config_path)
-                return config
+            config._source = config_path.resolve()
+            return config
 
         raise ValueError(f"unsupported file type '{ext}'")
 

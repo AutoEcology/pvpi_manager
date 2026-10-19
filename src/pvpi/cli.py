@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import click
@@ -8,6 +8,7 @@ import click
 from pvpi.client import PvPiClient
 from pvpi.config import PvPiConfig
 from pvpi.logging_ import init_logging
+from pvpi.schedule import Schedule
 from pvpi.services import system_manager
 from pvpi.services.zmq_serial_proxy import ZmqSerialProxy
 from pvpi.systemd import config_path as systemd_config_path
@@ -192,6 +193,35 @@ def manager(config: str | None = None):
 @click.option("--config", type=click.Path(file_okay=True, dir_okay=False))
 def dashboard(config: str | None = None):
     run_dashboard(config_path=config)
+
+
+@cli.command(
+    short_help="Show when a schedule turns the Pi on and off",
+    help="Show the next 24 hours of a power schedule: when the Pi is on, and the wake alarm a shutdown "
+    "now would set. NAME is a schedule file in the config's schedules folder; without it, the schedule in use.",
+)
+@click.argument("name", required=False)
+@click.option("--config", type=click.Path(file_okay=True, dir_okay=False), help="The config (default: the services')")
+def schedule(name: str | None = None, config: str | None = None):
+    path = Path(config) if config else systemd_config_path()
+    _config = PvPiConfig.from_file(str(path)) if path.exists() else PvPiConfig()
+    name = name or _config.schedule
+    if name is None:
+        click.echo("No schedule in use: the Pi is always on.")
+        return
+    found = Schedule.load(_config.schedule_path(name))
+    now = datetime.now().replace(microsecond=0)
+    click.echo(f"Schedule '{name}' ({_config.schedule_path(name)})")
+    for problem in _config.check_schedule(found):
+        click.echo(f"  Can't be used: {problem}")
+    if found.always_on:
+        click.echo("  No rules: the Pi is always on.")
+        return
+    click.echo(f"  Now: {'on' if found.is_on(now) else 'off'}")
+    for begin, end in found.periods(now, now + timedelta(hours=24)):
+        click.echo(f"  On {begin:%a %H:%M:%S} to {end:%a %H:%M:%S}")
+    alarm = found.alarm(now + _config.min_off)
+    click.echo(f"  A shutdown now would set the wake alarm for {alarm:%a %H:%M:%S}" if alarm else "  Never on again")
 
 
 @cli.command(short_help="Install Pv Pi logger & UART proxy as systemd services")

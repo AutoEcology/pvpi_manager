@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from pvpi.client import PvPiClient
 from pvpi.config import PvPiConfig
 from pvpi.logging_ import RotatingCSVLogger
+from pvpi.schedule import Schedule
 from pvpi.transports import ZmqSerialProxyInterface
 from pvpi.utils import set_system_time
 
@@ -14,15 +15,44 @@ _logger = logging.getLogger(__name__)
 
 LOOP_SECS = 10  # between passes of the management loop
 MAX_FAILED_PASSES = 5  # passes in a row that can't read the board before the service exits
+# A schedule's off periods are at least the config's min_off long; the manager may notice one up
+# to two passes late and still shut down in time for the wake alarm.
+LATE_MARGIN = timedelta(seconds=2 * LOOP_SECS)
 
 
-def _in_shutdown_window(config: PvPiConfig, now: datetime) -> bool:
-    shutdown, wakeup = config.shutdown_time, config.wakeup_time
-    if shutdown < wakeup:
-        # Same day: shutdown window is between shutdown_time and wakeup_time
-        return shutdown <= now.time() < wakeup
-    # Overnight: e.g. shutdown=23:00, wakeup=06:00
-    return now.time() >= shutdown or now.time() < wakeup
+class _ScheduleWatch:
+    """The schedule in use, read again when it's changed (e.g. from the dashboard): a new
+    schedule file, or the config choosing another one. Other config changes need a restart."""
+
+    def __init__(self, config: PvPiConfig):
+        self.config = config
+        self.schedule = config.load_schedule()  # an unworkable schedule stops the service here
+        self._seen = self._stamp()
+        _logger.info("Schedule: %s", config.schedule or "none, always on")
+
+    def _stamp(self) -> tuple:
+        paths = [self.config._source]
+        if self.config.schedule is not None:
+            paths.append(self.config.schedule_path(self.config.schedule))
+        return tuple(_mtime(p) for p in paths)
+
+    def get(self) -> Schedule:
+        if self._stamp() != self._seen:
+            try:
+                config = PvPiConfig.from_file(str(self.config._source)) if self.config._source else self.config
+                self.schedule, self.config = config.load_schedule(), config
+                _logger.info("Schedule changed: %s", config.schedule or "none, always on")
+            except Exception as err:
+                _logger.error("Keeping the schedule in use; the changed one can't be used: %s", err)
+            self._seen = self._stamp()
+        return self.schedule
+
+
+def _mtime(path) -> float | None:
+    try:
+        return path.stat().st_mtime if path else None
+    except OSError:
+        return None
 
 
 def _log_stats(client: PvPiClient, bat_v: float, stats_data_logger: RotatingCSVLogger | None) -> None:
@@ -70,7 +100,7 @@ def run(config: PvPiConfig):
         time.sleep(config.startup_delay)
 
     _logger.info("Log period: %i minutes", config.log_period)
-    _logger.info("Time Schedule: %s", "On" if config.schedule_time else "Off")
+    watch = _ScheduleWatch(config)
 
     # Setup power watchdog
     _logger.info("Watchdog: %s", "On" if config.enable_watchdog else "Off")
@@ -90,14 +120,24 @@ def run(config: PvPiConfig):
     log_period_sec = config.log_period * 60
     prev_log_time = datetime.now() - timedelta(seconds=log_period_sec)
 
+    staying_on_logged = False
     low_readings = 0  # low battery readings in a row
     failed_passes = 0  # passes in a row that couldn't read the board
     try:
         while True:
             curr_time = datetime.now()
-            if config.schedule_time and _in_shutdown_window(config, curr_time):
-                _logger.info("Shutdown Time!")
-                break
+            schedule = watch.get()
+            if not schedule.is_on(curr_time):
+                wake = schedule.next_on(curr_time)
+                if wake is None or wake - curr_time >= watch.config.min_off - LATE_MARGIN:
+                    _logger.info("Shutdown Time!")
+                    break
+                # Too close to the next on time to shut down and still wake for it.
+                if not staying_on_logged:
+                    _logger.info("Off until %s, too soon to shut down: staying on", wake)
+                    staying_on_logged = True
+            else:
+                staying_on_logged = False
 
             try:
                 if config.enable_watchdog:
@@ -147,8 +187,9 @@ def run(config: PvPiConfig):
         # must still shut down.
         if _attempt("stop the watchdog", client.stop_watchdog):
             _logger.info("Watchdog stopped")
-        if config.schedule_time and _attempt("set the wake alarm", client.set_alarm, config.wakeup_time):
-            _logger.info("Alarm set %s", config.wakeup_time)
+        alarm = watch.get().alarm(datetime.now() + watch.config.min_off - LATE_MARGIN)
+        if alarm is not None and _attempt("set the wake alarm", client.set_alarm, alarm.time()):
+            _logger.info("Alarm set %s", alarm)
         if config.power_off_on_shutdown and _attempt(
             "schedule the power off", client.power_off, delay_s=config.power_off_delay
         ):
