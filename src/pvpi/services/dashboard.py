@@ -125,16 +125,29 @@ def check_schedule(config: PvPiConfig, body, now: datetime | None = None) -> dic
 
 
 def _power(config: PvPiConfig, start: str | None, end: str | None) -> dict:
-    """The power log over the days of the history (start and end: ISO dates, both included)."""
+    """The power log over the days of the history (start and end: ISO dates, both included), with
+    `expected`: when the schedule in use turns the Pi on (all of it with no schedule; None when the
+    schedule can't be read)."""
     if start is None or end is None:
-        return {"on": [], "running": [], "boots": [], "shutdowns": []}
+        return {"on": [], "running": [], "boots": [], "shutdowns": [], "expected": []}
     try:
         current = boot_time()
     except OSError:
         current = None
     begin = datetime.fromisoformat(start)
     finish = datetime.fromisoformat(end) + timedelta(days=1)
-    return read_power(config.data_log_path, begin, finish, config.heartbeat_mins, current_boot=current)
+    power = read_power(config.data_log_path, begin, finish, config.heartbeat_mins, current_boot=current)
+    try:
+        schedule = config.load_schedule()
+    except Exception as err:
+        _logger.warning("Can't show the schedule in use: %s", err)
+        power["expected"] = None
+        return power
+    periods = [(begin, finish)] if schedule.always_on else schedule.periods(begin, finish)
+    power["expected"] = [
+        [max(a, begin).isoformat(timespec="seconds"), min(b, finish).isoformat(timespec="seconds")] for a, b in periods
+    ]
+    return power
 
 
 class DashboardServer(ThreadingHTTPServer):

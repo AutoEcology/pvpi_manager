@@ -127,7 +127,7 @@ def test_history_reads_the_days_asked_for(dashboard, tmp_path, query, times):
 def test_history_with_no_logs_is_empty(dashboard):
     status, history = dashboard()("/api/history")
     assert status == 200 and history["columns"]["t"] == [] and history["first"] is None
-    assert history["power"]["on"] == []
+    assert history["power"]["on"] == [] and history["power"]["expected"] == []
 
 
 @pytest.mark.parametrize("query, status", [("?start=yesterday", 400), ("", 404)])
@@ -195,3 +195,13 @@ def test_history_has_the_power_log(dashboard, tmp_path):
     assert status == 200
     assert history["power"]["on"] == [["2026-09-12T07:00:00", "2026-09-12T19:00:02", "schedule"]]
     assert history["power"]["boots"] == ["2026-09-12T07:00:00"]
+    assert history["power"]["expected"] == [["2026-09-10T00:00:00", "2026-09-13T00:00:00"]]  # no schedule: always on
+
+
+def test_history_has_the_scheduled_on_times(dashboard, tmp_path):
+    _logs(tmp_path / "logs")
+    get = dashboard()
+    get("/api/schedules/day", "PUT", DAY)
+    get("/api/schedules/active", "POST", {"name": "day"})
+    expected = get("/api/history?start=2026-09-12&end=2026-09-12")[1]["power"]["expected"]
+    assert expected == [["2026-09-12T07:00:00", "2026-09-12T19:00:00"]]
