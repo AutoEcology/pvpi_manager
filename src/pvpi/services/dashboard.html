@@ -47,6 +47,8 @@ try { const theme = localStorage.getItem("pvpi-theme"); if (theme) document.docu
     <div class="charts" id="battery"></div>
     <h2>Board temperature</h2>
     <div class="charts" id="thermal"></div>
+    <h2>Power</h2>
+    <div class="charts" id="power"></div>
   </section>
 </main>
 
@@ -112,7 +114,7 @@ async function refreshHistory() {
   $("history-note").textContent = h.first
     ? `${count} readings · logs from ${h.first} to ${h.last}`
     : "No logs yet: the manager writes them when log_pvpi_stats is on.";
-  drawCharts(h.columns);
+  drawCharts(h.columns, h.power);
 }
 
 function movingAverage(values, n) {
@@ -145,24 +147,97 @@ function el(name, attrs, parent) {
   return node;
 }
 
-let lastColumns = null;
-function drawCharts(columns) {
-  lastColumns = columns;
-  for (const box of ["solar", "battery", "thermal"]) $(box).replaceChildren();
-  const times = columns.t.map(t => new Date(t.replace(" ", "T")).getTime());
+let lastColumns = null, lastPower = null;
+const toTime = t => new Date(t.replace(" ", "T")).getTime();  // the Pi's local times, as this browser's
+function drawCharts(columns, power) {
+  lastColumns = columns; lastPower = power;
+  for (const box of ["solar", "battery", "thermal", "power"]) $(box).replaceChildren();
+  const times = columns.t.map(toTime);
   // All the cards first, so each is measured at its width in the finished layout.
-  const cards = CHARTS.map(chart => {
-    const card = document.createElement("div");
-    card.className = "chart";
-    const title = document.createElement("h3");
-    const readout = document.createElement("span");
-    readout.className = "readout";
-    title.append(`${chart.title} (${chart.unit})`, readout);
-    card.appendChild(title);
-    $(chart.box).appendChild(card);
-    return { card, readout, svg: el("svg", {}, card) };
-  });
+  const cards = CHARTS.map(chart => card($(chart.box), `${chart.title} (${chart.unit})`));
+  const powerCard = card($("power"), "Pi on");
   CHARTS.forEach((chart, i) => drawChart(chart, cards[i], times, chart.series(columns)));
+  if (power) drawPower(power, powerCard, times);
+}
+
+function card(box, heading) {
+  const div = document.createElement("div");
+  div.className = "chart";
+  const title = document.createElement("h3");
+  const readout = document.createElement("span");
+  readout.className = "readout";
+  title.append(heading, readout);
+  div.appendChild(title);
+  box.appendChild(div);
+  return { card: div, title, readout, svg: el("svg", {}, div) };
+}
+
+function timeLabels(svg, t0, t1, x, W, H) {
+  const days = (t1 - t0) / 86400000, n = W < 420 ? 2 : 4;
+  for (let i = 0; i <= n; i++) {
+    const d = new Date(t0 + (t1 - t0) * i / n);
+    const label = days > 6 ? d.toLocaleDateString([], { month: "short", day: "numeric" })
+      : days > 1 ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric" })
+      : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    el("text", { x: x(d.getTime()), y: H - 4, "text-anchor": i === 0 ? "start" : i === n ? "end" : "middle" }, svg).textContent = label;
+  }
+}
+
+// ---- Power: when the Pi was on and the PV PI manager running, with each boot and shutdown ----
+const ENDED = { schedule: "shut down by the schedule", "low battery": "shut down on a low battery",
+  unexpected: "ended unexpectedly (power lost or a crash)", running: "still on" };
+function drawPower(power, { svg, title, readout }, times) {
+  const W = Math.max(240, Math.round(svg.getBoundingClientRect().width) || 600), H = 104, L = 8, R = 8, B = 22;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.style.height = H + "px";
+  const on = power.on.map(([a, b, how]) => [toTime(a), toTime(b), how]);
+  const running = power.running.map(([a, b]) => [toTime(a), toTime(b)]);
+  const boots = power.boots.map(toTime), downs = power.shutdowns.map(([t, why]) => [toTime(t), why]);
+  if (!on.length && !running.length) {
+    el("text", { x: W / 2, y: H / 2, "text-anchor": "middle" }, svg).textContent = "Nothing in the power log for these days yet";
+    return;
+  }
+  const hours = on.reduce((sum, [a, b]) => sum + (b - a), 0) / 3600000;
+  title.firstChild.textContent = `Pi on · ${hours.toFixed(1)} h, ${boots.length} start${boots.length === 1 ? "" : "s"}`;
+  // The same time axis as the readings' charts when there are readings
+  const all = [...on.flat(), ...running.flat()].filter(v => typeof v === "number");
+  const t0 = times.length ? times[0] : Math.min(...all);
+  let t1 = times.length ? times[times.length - 1] : Math.max(...all);
+  if (t1 <= t0) t1 = t0 + 1;
+  const x = t => L + (Math.min(Math.max(t, t0), t1) - t0) / (t1 - t0) * (W - L - R);
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const rows = [["Pi on", on, css("--bat"), 6], ["PV PI manager running", running, css("--pv"), 46]];
+  for (const [label, spans, color, top] of rows) {
+    el("text", { x: L, y: top + 4 }, svg).textContent = label;
+    el("rect", { x: L, y: top + 9, width: W - L - R, height: 18, class: "track" }, svg);
+    for (const [a, b] of spans) {
+      el("rect", { x: x(a), y: top + 9, width: Math.max(1.5, x(b) - x(a)), height: 18, fill: color }, svg);
+    }
+  }
+  for (const t of boots) el("line", { x1: x(t), x2: x(t), y1: 12, y2: H - B, class: "boot-mark" }, svg);
+  for (const [t] of downs) el("line", { x1: x(t), x2: x(t), y1: 12, y2: H - B, class: "down-mark" }, svg);
+  timeLabels(svg, t0, t1, x, W, H);
+
+  const clock = t => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const cursor = el("line", { class: "cursor", y1: 12, y2: H - B, visibility: "hidden" }, svg);
+  const show = event => {
+    const box = svg.getBoundingClientRect();
+    const px = (event.clientX - box.left) / box.width * W;
+    const t = t0 + (px - L) / (W - L - R) * (t1 - t0);
+    const near = (W - L - R) > 0 ? 8 * (t1 - t0) / (W - L - R) : 0;  // within 8 px
+    cursor.setAttribute("x1", px); cursor.setAttribute("x2", px); cursor.setAttribute("visibility", "visible");
+    const boot = boots.find(b => Math.abs(b - t) <= near);
+    const down = downs.find(([d]) => Math.abs(d - t) <= near);
+    if (boot !== undefined) { readout.textContent = "Booted " + clock(boot); return; }
+    if (down) { readout.textContent = `Shut down ${clock(down[0])} (${down[1]})`; return; }
+    const period = on.find(([a, b]) => a <= t && t <= b);
+    const managed = running.some(([a, b]) => a <= t && t <= b);
+    readout.textContent = period
+      ? `On ${clock(period[0])} to ${clock(period[1])}, ${ENDED[period[2]] || period[2]}` + (managed ? "" : " · manager not running")
+      : "Off · " + clock(t);
+  };
+  svg.addEventListener("pointermove", show);
+  svg.addEventListener("pointerleave", () => { cursor.setAttribute("visibility", "hidden"); readout.textContent = ""; });
 }
 
 function drawChart(chart, { readout, svg }, times, values) {
@@ -184,14 +259,7 @@ function drawChart(chart, { readout, svg }, times, values) {
     el("line", { class: "grid", x1: L, x2: W - R, y1: y(v), y2: y(v) }, svg);
     el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end" }, svg).textContent = +v.toFixed(2);
   }
-  const days = (t1 - t0) / 86400000, n = W < 420 ? 2 : 4;
-  for (let i = 0; i <= n; i++) {
-    const d = new Date(t0 + (t1 - t0) * i / n);
-    const label = days > 6 ? d.toLocaleDateString([], { month: "short", day: "numeric" })
-      : days > 1 ? d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric" })
-      : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    el("text", { x: x(d.getTime()), y: H - 4, "text-anchor": i === 0 ? "start" : i === n ? "end" : "middle" }, svg).textContent = label;
-  }
+  timeLabels(svg, t0, t1, x, W, H);
 
   const drawLine = (series, cls) => {
     let d = "", prev = null;
@@ -223,12 +291,12 @@ function drawChart(chart, { readout, svg }, times, values) {
   svg.addEventListener("pointerleave", () => { cursor.setAttribute("visibility", "hidden"); readout.textContent = ""; });
 }
 
-window.addEventListener("themechange", () => { if (lastColumns) drawCharts(lastColumns); });  // the charts take their colours when drawn
+window.addEventListener("themechange", () => { if (lastColumns) drawCharts(lastColumns, lastPower); });  // the charts take their colours when drawn
 
 let resizing;
 window.addEventListener("resize", () => {
   clearTimeout(resizing);
-  resizing = setTimeout(() => { if (lastColumns) drawCharts(lastColumns); }, 200);
+  resizing = setTimeout(() => { if (lastColumns) drawCharts(lastColumns, lastPower); }, 200);
 });
 $("start").addEventListener("change", refreshHistory);
 $("end").addEventListener("change", refreshHistory);

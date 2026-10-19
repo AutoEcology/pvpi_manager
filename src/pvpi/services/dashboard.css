@@ -70,3 +70,6 @@ h2 { font-size: 1.1rem; margin: 28px 0 10px; }
 nav { display: flex; justify-content: center; gap: 6px; margin-top: 12px; }
 nav a { color: var(--muted); text-decoration: none; padding: 4px 12px; border-radius: 999px; border: 1px solid transparent; }
 nav a[aria-current="page"] { color: var(--text); background: var(--card); border-color: var(--line); }
+.track { fill: var(--bg); stroke: var(--line); }
+.boot-mark { stroke: var(--text); stroke-width: 1.5; }
+.down-mark { stroke: var(--temp); stroke-width: 1.5; stroke-dasharray: 4 2; }
