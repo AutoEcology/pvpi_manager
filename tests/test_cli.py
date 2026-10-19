@@ -6,7 +6,6 @@ from click.testing import CliRunner
 from pvpi import cli
 from pvpi.client import PvPiClient
 
-
 REPLIES = {
     b"GET_ALIVE": "ALIVE",
     b"GET_VERSION": "VERSION,PVPi,D,1.15",
