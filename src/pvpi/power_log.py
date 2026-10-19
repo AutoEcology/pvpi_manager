@@ -88,7 +88,7 @@ def read_power(
 
     - `on`: [boot, end, how it ended]: `schedule`, `low battery`, `unexpected`, or `running` for
       `current_boot` (still on, so it ends now);
-    - `running`: [first, last] heartbeats with no gap over two heartbeat periods;
+    - `running`: [first, last] heartbeats (each boot counting as one) with no gap over two heartbeat periods;
     - `boots` and `shutdowns` ([time, reason]): the moments, for markers.
     """
     folder = Path(data_log_path) / FOLDER
@@ -113,7 +113,9 @@ def read_power(
 
     gap = timedelta(minutes=2 * heartbeat_mins)
     running: list[list[datetime]] = []
-    for row in rows:
+    # Each boot counts as a heartbeat, so the running periods start when the Pi did.
+    beats = sorted([*rows, *({"t": boot, "boot": boot} for boot in by_boot)], key=lambda r: r["t"])
+    for row in beats:
         if running and row["t"] - running[-1][1] <= gap and abs(row["boot"] - running[-1][2]) < SAME_BOOT:
             running[-1][1] = row["t"]
         else:

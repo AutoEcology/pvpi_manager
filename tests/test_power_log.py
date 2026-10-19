@@ -63,7 +63,7 @@ def test_a_day_with_a_scheduled_shutdown(tmp_path):
     write(tmp_path, (down, "shutdown", "schedule", BOOT))
     power = read_power(tmp_path, *DAY, heartbeat_mins=1)
     assert power["on"] == [["2026-10-19T07:00:40", "2026-10-19T19:00:02", "schedule"]]
-    assert power["running"] == [["2026-10-19T07:01:00", "2026-10-19T19:00:02"]]
+    assert power["running"] == [["2026-10-19T07:00:40", "2026-10-19T19:00:02"]]  # from the boot
     assert power["boots"] == ["2026-10-19T07:00:40"] and power["shutdowns"] == [["2026-10-19T19:00:02", "schedule"]]
 
 
@@ -97,3 +97,10 @@ def test_nothing_logged_reads_as_nothing(tmp_path, missing):
         (tmp_path / "power").mkdir()
         (tmp_path / "power" / "2026-10-19.csv").write_text(",".join(POWER_HEADERS) + "\nnot,a,row,here\n")
     assert read_power(tmp_path, *DAY, heartbeat_mins=1) == {"on": [], "running": [], "boots": [], "shutdowns": []}
+
+
+def test_a_late_first_heartbeat_leaves_a_gap_after_the_boot(tmp_path):
+    late = BOOT + timedelta(minutes=23)  # the manager wasn't running at first
+    write(tmp_path, (late, "boot", "", BOOT), *beats(BOOT, late, late + timedelta(minutes=10)))
+    running = read_power(tmp_path, *DAY, heartbeat_mins=1)["running"]
+    assert [r[0] for r in running] == ["2026-10-19T07:00:40", late.isoformat()]
