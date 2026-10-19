@@ -10,7 +10,9 @@ _logger = logging.getLogger(__name__)
 
 
 class ZmqSerialProxy:
-    def __init__(self, serial_interface: SerialInterface, bind_addr: str = "tcp://*:5555", timeout_ms: int = 1_000):
+    def __init__(
+        self, serial_interface: SerialInterface, bind_addr: str = "tcp://127.0.0.1:5555", timeout_ms: int = 1_000
+    ):
         self.serial_interface = serial_interface
         self.bind_addr = bind_addr
         self.timeout_ms = timeout_ms
