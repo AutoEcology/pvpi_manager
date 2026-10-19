@@ -39,3 +39,11 @@ def invoke(monkeypatch):
 def test_currents_take_decimals(invoke, command, sent):
     assert invoke(command, "--current", "0.5").exit_code == 0
     assert invoke.sent == [sent]
+
+
+@pytest.mark.parametrize("command, request_", [("set-mppt", b"SET_MPPT_STATE"), ("set-charging", b"SET_CHARGE_STATE"), ("set-ts", b"SET_TS_STATE")])
+def test_on_off_commands_need_a_choice(invoke, command, request_):
+    assert invoke(command).exit_code != 0 and invoke.sent == []  # no flag: nothing changes
+    assert invoke(command, "--enable").exit_code == 0
+    assert invoke(command, "--disable").exit_code == 0
+    assert invoke.sent == [request_ + b",ON", request_ + b",OFF"]

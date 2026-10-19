@@ -133,10 +133,10 @@ def set_charge_current(current: float):
     logger.info("PV Pi max battery charge current set to: %s", current)
 
 @cli.command(short_help="Enable/Disable Pv Pi MPPT")
-@click.option("--enable", is_flag=True, help="Enable PV Pi MPPT.")
-def set_mppt(enable: bool = True):
+@click.option("--enable/--disable", required=True, help="Enable or disable PV Pi MPPT.")
+def set_mppt(enable: bool):
     state = "ON" if enable else "OFF"
-    logger.info("Setting PV PI MPPT "  + state)
+    logger.info("Setting PV PI MPPT " + state)
 
     client = PvPiClient()
     client.set_mppt_state(state)
@@ -144,10 +144,10 @@ def set_mppt(enable: bool = True):
 
 
 @cli.command(short_help="Enable/Disable Pv Pi Charging")
-@click.option("--enable", is_flag=True, help="Enable PV Pi Charging.")
-def set_charging(enable: bool = True):
+@click.option("--enable/--disable", required=True, help="Enable or disable PV Pi Charging.")
+def set_charging(enable: bool):
     state = "ON" if enable else "OFF"
-    logger.info("Setting PV PI Charging "  + state)
+    logger.info("Setting PV PI Charging " + state)
 
     client = PvPiClient()
     client.set_charge_state(state)
@@ -155,10 +155,10 @@ def set_charging(enable: bool = True):
 
 
 @cli.command(short_help="Enable/Disable BQ25756 Battery Temperature monitoring.")
-@click.option("--enable", is_flag=True, help="Enable BQ25756 Battery Temperature monitoring.")
-def set_ts(enable: bool = True):
+@click.option("--enable/--disable", required=True, help="Enable or disable BQ25756 Battery Temperature monitoring.")
+def set_ts(enable: bool):
     state = "ON" if enable else "OFF"
-    logger.info("Setting BQ25756 Temperature monitoring "  + state)
+    logger.info("Setting BQ25756 Temperature monitoring " + state)
 
     client = PvPiClient()
     client.set_ts_state(state)
