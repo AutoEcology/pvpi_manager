@@ -27,9 +27,9 @@ button:disabled { opacity: 0.5; cursor: default; }
 .days { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .days label { gap: 3px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
-.bar { position: relative; height: 28px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin-top: 8px; }
+.bar { position: relative; height: 44px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin-top: 8px; }
 .bar .on { position: absolute; top: 0; bottom: 0; background: var(--pv); }
-.ticks { position: relative; height: 16px; font-size: 11px; color: var(--muted); }
+.ticks { position: relative; height: 22px; font-size: 14px; margin-top: 2px; color: var(--muted); }
 .ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
 .ticks span:first-child { transform: none; }
 .ticks span:last-child { transform: translateX(-100%); }
@@ -241,7 +241,7 @@ async function check() {
     d.title = "On " + when(a) + " to " + when(b);
     return d;
   }));
-  $("ticks").replaceChildren(...[0, 6, 12, 18, 24].map(h => {
+  $("ticks").replaceChildren(...($("bar").clientWidth < 520 ? [0, 12, 24] : [0, 6, 12, 18, 24]).map(h => {  // fewer labels on a phone
     const s = document.createElement("span");
     s.style.left = (h / 24 * 100) + "%";
     s.textContent = h === 0 ? "now" : whenMs(start + h * 3600 * 1000);
