@@ -119,15 +119,15 @@ def get_version():
     logger.info("Device name: %s, PCB version: %s, Firmware version: %s", device_name, hw_version, fw_version)
     
 @cli.command(short_help="Set the maximum input current for the PV Pi")
-@click.option("--current", type=int, required=True, help="Maximum charge current in amps")
-def set_input_current(current: int):
+@click.option("--current", type=float, required=True, help="Maximum input current in amps (0.4 to 8)")
+def set_input_current(current: float):
     client = PvPiClient()
     client.set_max_input_current(current)
     logger.info("PV Pi max input current set to: %s", current)
 
 @cli.command(short_help="Set the maximum battery charge current for the PV Pi")
-@click.option("--current", type=int, required=True, help="Maximum charge current in amps")
-def set_charge_current(current: int):
+@click.option("--current", type=float, required=True, help="Maximum battery charge current in amps (0.4 to 10)")
+def set_charge_current(current: float):
     client = PvPiClient()
     client.set_max_charge_current(current)
     logger.info("PV Pi max battery charge current set to: %s", current)

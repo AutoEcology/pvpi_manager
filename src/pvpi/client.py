@@ -267,7 +267,7 @@ class PvPiClient:
         resp = self._interface.write(cmd)
         _, success = resp.split(",")
         if success != "OK":
-            raise ValueError("Failed to set max charge current")
+            raise ValueError("Failed to set max input current")
 
     # ---------------------- Fault and Status Commands ---------------------- #
     def get_charge_state_code(self) -> PvPiChargeState:
