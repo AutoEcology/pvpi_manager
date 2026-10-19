@@ -80,6 +80,8 @@ uv run pvpi  # show usage help
 uv run pvpi connection-test
 ```
 
+`connection-test` checks the connection and reports the PV Pi's readings. It also resets the PV Pi to its default settings: its clock from the Pi's clock, MPPT on, charging on, battery temperature monitoring off, 10 A maximum charge current and a 13 V wake-up voltage. The manager service sets the wake-up voltage back to the config's `wake_up_volt` when it next starts.
+
 ## Install PV Pi Manager Service
 
 PV Pi manager comes with an `install` command to setup an automatic PV Pi Manager Service that will handle power management and scheduling. 
@@ -89,9 +91,9 @@ uv run pvpi install
 ```
 
 The installation places two system services that will run automatically upon every boot, three if you add the dashboard. They run the `pvpi` of the environment `install` was run from (e.g. `pvpi_manager/.venv/bin/pvpi`), with nothing in front of it. There is:
-- The UART Proxy is a service that manages communications to the PV PI for multiple applications attempting to do so at once. It holds onto the serial connection to the PV Pi and proxies requests over network sockets.
+- The UART Proxy is a service that manages communications to the PV PI for multiple applications attempting to do so at once. It holds onto the serial connection to the PV Pi and proxies requests over a local socket (`tcp://127.0.0.1:5555`, reachable only from the Pi itself).
 - The Manager services is a simple looping script that communicates, via the UART proxy, to the PV Pi and logs metrics. Every 10 seconds it checks the battery, and it shuts the Pi down once `low_bat_readings` readings in a row (3 by default) are at or below `low_bat_volt`, so a short dip under load doesn't power the device off. A reading that fails is retried on the next pass; the service only stops (and systemd starts it again) after 5 failed passes in a row.
-- The Dashboard (optional) is a small web page showing live PV Pi readings and charts of the logged history, on port 8501. The history needs `log_pvpi_stats` to be enabled.
+- The Dashboard (optional) is a small web page showing live PV Pi readings and charts of the logged history, on port 8501, with a page to create and choose power schedules (see Scheduling). The history needs `log_pvpi_stats` to be enabled. The dashboard has no login: anyone who can reach port 8501 can change the schedule.
 
 ### Want the dashboard too?
 The dashboard is off unless you ask for it. To add it:
@@ -111,6 +113,33 @@ uv run pvpi install --no-dashboard
 Running `pvpi install` again (e.g. after an update) leaves the dashboard as you set it up, and keeps a service you've disabled (`sudo systemctl disable --now pvpi_dashboard.service`) disabled.
 
 This is an optional installation. Each service can be run directly via the CLI (`uv run pvpi dashboard` starts the dashboard until you stop it), and none are required to run in order to use the PV Pi SDK. They serve as examples on which to base your own work.
+
+# Scheduling
+A power schedule sets the times the Pi is on. Outside them, the PV Pi Manager service shuts the Pi down and sets the PV Pi's wake alarm, so the Pi starts again at the next on time. With no schedule in use, the Pi is always on (and only shuts down on a low battery).
+
+Each schedule is a JSON file of rules in a `schedules` folder next to the config file (`schedules_dir` in the config picks another folder). The Pi is on whenever any rule is on. There are two kinds of rule:
+- `daily`: on from one time of day to another (into the next day if `off` is earlier than `on`).
+- `periodic`: on and off in turn, e.g. 5 minutes on then 5 off, between `start` and `end` (all day when they're the same, the default). The cycle begins at `start` each day.
+
+Both take `days`, the days a rule starts on (every day by default). For example, `schedules/field.json`:
+```json
+{"rules": [
+  {"kind": "daily", "on": "07:00", "off": "12:00", "days": ["mon", "tue", "wed", "thu", "fri"]},
+  {"kind": "periodic", "on_for_mins": 5, "off_for_mins": 5, "start": "12:00", "end": "19:00"}
+]}
+```
+
+Set `schedule` in the config to the file's name (`"schedule": "field"`) to use it. The manager picks up a new or changed schedule within 10 seconds, with no restart. A schedule is refused if it has an on period too short for the Pi to start up (`startup_delay` + 60 s) or an off period too short for it to shut down and the power to go off (`power_off_delay` + 60 s).
+
+The schedule uses the Pi's clock. In the field, with no network, enable `time_mcu2pi` so the Pi takes its time from the PV Pi's clock when it starts, and set that clock once with `pvpi set-mcu-clock`.
+
+The dashboard's Schedule page creates, checks and chooses schedules. To see a schedule's next 24 hours from the command line:
+```shell
+uv run pvpi schedule          # the schedule in use
+uv run pvpi schedule field    # another schedule file
+```
+
+Older configs with `schedule_time`, `shutdown_time` and `wakeup_time` are refused: move those times into a schedule file (a `daily` rule with `on` set to the old `wakeup_time` and `off` to the old `shutdown_time`).
 
 # Other CLI commands
 
@@ -151,55 +180,39 @@ uv run pvpi get-faults
 ```
 
 ## Set PV Pi Charge Current
-Set the Maximum charge current for the PV Pi (Must be less than 10 Amps)
+Set the maximum battery charge current for the PV Pi, from 0.4 to 10 amps.
 
 ```shell
 uv run pvpi set-charge-current --current 5
+uv run pvpi set-charge-current --current 0.5
 ```
 
 ## Set PV Pi Input Current
-Set the Maximum input current for the PV Pi (Must be less than 8 Amps)
+Set the maximum input current for the PV Pi, from 0.4 to 8 amps.
 
 ```shell
 uv run pvpi set-input-current --current 2
 ```
 
 ## Set PV Pi MPPT State
-Enable/Disable Pv Pi MPPT.
-
-With no flag MPPT will be disabled.
-```shell
-uv run pvpi set-mppt
-```
-
-With "enable" flag MPPT will be enabled.
+Enable or disable the PV Pi's MPPT. One of `--enable` or `--disable` is required.
 ```shell
 uv run pvpi set-mppt --enable
+uv run pvpi set-mppt --disable
 ```
 
-## Set TS State 
-Enable/Disable BQ25756 Battery Temperature monitoring.
-
-With no flag Temperature monitoring will be disabled.
-```shell
-uv run pvpi set-ts
-```
-
-With "enable" flag Temperature monitoring will be enabled.
+## Set TS State
+Enable or disable the BQ25756's battery temperature monitoring. One of `--enable` or `--disable` is required.
 ```shell
 uv run pvpi set-ts --enable
+uv run pvpi set-ts --disable
 ```
+
 ## Set PV Pi Charging State
-Enable/Disable PV Pi battery charging.
-
-With no flag charging will be disabled.
-```shell
-uv run pvpi set-charging
-```
-
-With "enable" flag charging will be enabled.
+Enable or disable PV Pi battery charging. One of `--enable` or `--disable` is required.
 ```shell
 uv run pvpi set-charging --enable
+uv run pvpi set-charging --disable
 ```
 
 
