@@ -10,10 +10,10 @@ try { const theme = localStorage.getItem("pvpi-theme"); if (theme) document.docu
 <link rel="stylesheet" href="/dashboard.css">
 <style>
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 10px; }
-.intro { max-width: 70ch; }
-.list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.list button.pick[aria-pressed="true"] { border-color: var(--bat); }
-.badge { font-size: 0.75rem; color: var(--card); background: var(--bat); border-radius: 999px; padding: 0 6px; margin-left: 4px; }
+.intro { max-width: 60ch; margin: 22px auto 6px; text-align: center; font-size: 1.15rem; line-height: 1.55; }
+.picker { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.picker select { min-width: 16em; max-width: 100%; }
+.in-use { font-weight: 600; }
 button, input, select { font: inherit; color: var(--text); background: var(--card);
   border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
 button { cursor: pointer; }
@@ -51,13 +51,21 @@ ul.plain { margin: 6px 0 0; padding-left: 18px; }
   </header>
   <nav><a href="/">Readings</a><a href="/schedule" aria-current="page">Schedule</a></nav>
 
-  <p class="intro muted">A power schedule sets the times the Pi is on. Outside them, the PV PI manager shuts the Pi
-    down and sets the PV PI's wake alarm, so the Pi starts again at the next on time. Each schedule is a file of rules,
-    and the Pi is on whenever any of its rules is on. With no schedule in use, the Pi is always on.</p>
+  <p class="intro">Here's where you can create and run a power schedule for your Pi. Choose when it should be on
+    (every day, on certain days, or on a repeating cycle like 5 minutes on and 5 off) and the PV PI switches it off in
+    between to save battery, then wakes it up again on time. With no schedule, your Pi just stays on.</p>
 
   <h2>Schedules</h2>
-  <div class="list" id="list"></div>
+  <div class="picker">
+    <label>Open <select id="pick"></select></label>
+    <span>In use: <span class="in-use" id="in-use">–</span></span>
+  </div>
   <p class="muted" id="folder"></p>
+
+  <section id="always-on" class="card" hidden>
+    <p>With no schedule, your Pi just stays on, and only shuts down when the battery runs low.</p>
+    <button type="button" id="use-none">Use no schedule (always on)</button>
+  </section>
 
   <section id="editor" hidden>
     <h2 id="editor-title">Schedule</h2>
@@ -111,31 +119,36 @@ const when = iso => whenMs(ms(iso));
 function status(text, bad) { $("status").textContent = text; $("status").className = bad ? "bad" : "muted"; }
 
 // ---- The list of schedules ----
+const NONE = "", NEW = "+new";  // the drop-down's entries that aren't schedule files (names have no "+")
 async function refreshList() {
   listed = await getJSON("/api/schedules");
-  const list = $("list");
-  list.replaceChildren();
-  const none = button("Always on (no schedule)", "pick", () => use(null));
-  none.setAttribute("aria-pressed", listed.active === null);
-  if (listed.active === null) none.append(badge());
-  list.append(none);
-  for (const name of listed.schedules) {
-    const b = button(name, "pick", () => open(name));
-    b.setAttribute("aria-pressed", name === editing);
-    if (name === listed.active) b.append(badge());
-    list.append(b);
-  }
-  list.append(button("+ New schedule", "", () => open(null)));
+  const pick = $("pick");
+  const entry = (value, text) => { const o = document.createElement("option"); o.value = value; o.textContent = text; return o; };
+  pick.replaceChildren(
+    entry(NONE, "Always on (no schedule)" + (listed.active === null ? " (in use)" : "")),
+    ...listed.schedules.map(name => entry(name, name + (name === listed.active ? " (in use)" : ""))),
+    entry(NEW, "+ New schedule"));
+  pick.value = shown();
+  $("in-use").textContent = listed.active === null ? "always on (no schedule)" : listed.active;
   $("folder").textContent = "Schedule files are kept in " + listed.folder;
   $("use").disabled = editing === null || editing === listed.active;
   $("delete").disabled = editing === null || editing === listed.active;
+  $("use-none").disabled = listed.active === null;
 }
+const shown = () => !$("editor").hidden ? (editing === null ? NEW : editing) : NONE;
+$("pick").addEventListener("change", async () => {
+  const value = $("pick").value;
+  if (!saved && !confirm("Discard the changes not saved?")) { $("pick").value = shown(); return; }
+  saved = true;
+  if (value === NONE) { $("editor").hidden = true; $("always-on").hidden = false; editing = null; refreshList(); }
+  else open(value === NEW ? null : value);
+});
+$("use-none").onclick = () => use(null);
 function button(text, cls, onclick) {
   const b = document.createElement("button");
   b.type = "button"; b.className = cls; b.textContent = text; b.onclick = onclick;
   return b;
 }
-function badge() { const s = document.createElement("span"); s.className = "badge"; s.textContent = "in use"; return s; }
 
 async function open(name) {
   if (!saved && !confirm("Discard the changes not saved?")) return;
@@ -145,6 +158,7 @@ async function open(name) {
   $("name").disabled = name !== null;
   $("editor-title").textContent = name === null ? "New schedule" : "Schedule “" + name + "”";
   $("editor").hidden = false;
+  $("always-on").hidden = true;
   saved = name !== null;
   status("");
   drawRules();
@@ -268,12 +282,12 @@ $("delete").onclick = async () => {
   if (!confirm(`Delete the schedule “${editing}”?`)) return;
   try {
     await getJSON("/api/schedules/" + editing, undefined, "DELETE");
-    saved = true; editing = null; $("editor").hidden = true;
+    saved = true; editing = null; $("editor").hidden = true; $("always-on").hidden = false;
     await refreshList();
   } catch (err) { status(err.message, true); }
 };
 
-refreshList().then(() => { if (listed.active) open(listed.active); }).catch(err => { $("updated").textContent = err.message; $("updated").className = "bad"; });
+refreshList().then(() => { if (listed.active) open(listed.active); else { $("always-on").hidden = false; } }).catch(err => { $("updated").textContent = err.message; $("updated").className = "bad"; });
 </script>
 </body>
 </html>
