@@ -165,6 +165,8 @@ class PvPiClient:
         # Safety check
         if not self.voltage_soc_table:
             return 0.0
+        if voltage >= self.voltage_soc_table[0][0]:
+            return float(self.voltage_soc_table[0][1])  # full, e.g. while charging
 
         # Linear interpolation
         for i in range(len(self.voltage_soc_table) - 1):

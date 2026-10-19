@@ -1,3 +1,5 @@
+import pytest
+
 from pvpi.client import PvPiClient
 
 
@@ -22,3 +24,9 @@ def test_settings_go_to_the_board_in_whole_units():
         except ValueError:
             pass  # only what was sent matters here
     assert board.sent == [b"SET_WAKEUP_MILLIVOLT,12900", b"SET_CHARGE_MILLIAMPS,1005", b"SET_INPUT_MILLIAMPS,1005"]
+
+
+@pytest.mark.parametrize("millivolts, soc", [(14600, 100), (14400, 100), (13200, 80), (11800, 0)])
+def test_estimated_charge(millivolts, soc):
+    board = type("B", (), {"write": lambda self, m: f"MILLIVOLTS,{millivolts}", "close": lambda self: None})()
+    assert PvPiClient(interface=board).estimated_soc() == soc
