@@ -143,6 +143,14 @@ uv run pvpi schedule field    # another schedule file
 
 Older configs with `schedule_time`, `shutdown_time` and `wakeup_time` are refused: move those times into a schedule file (a `daily` rule with `on` set to the old `wakeup_time` and `off` to the old `shutdown_time`).
 
+# The power log
+With `log_pvpi_stats` on, the manager also keeps a power log: one CSV a day in a `power` folder inside `data_log_path`, kept for `keep_for_days` like the readings. Each row has a `Timestamp`, an `Event`, a `Reason` and the `Boot time` it belongs to. The events are:
+- `boot`: the Pi started (logged once per boot, also if the manager restarts);
+- `running`: the manager's heartbeat, every `heartbeat_mins` minutes (1 by default), showing when it was running;
+- `shutdown`: the manager shut the Pi down, with the reason `schedule` or `low battery`.
+
+A boot with no `shutdown` ended unexpectedly (the power was lost, or the Pi crashed) after its last heartbeat. The dashboard's Power chart, at the bottom of the readings page, shows when the Pi was on and the manager running, with a mark at each boot and shutdown.
+
 # Other CLI commands
 
 ## Setting PV Pi STM32 RTC clock time
