@@ -187,7 +187,8 @@ function timeLabels(svg, t0, t1, x, W, H) {
 const ENDED = { schedule: "shut down by the schedule", "low battery": "shut down on a low battery",
   unexpected: "ended unexpectedly (power lost or a crash)", running: "still on" };
 function drawPower(power, { svg, title, readout }, times) {
-  const W = Math.max(240, Math.round(svg.getBoundingClientRect().width) || 600), H = 104, L = 8, R = 8, B = 22;
+  const W = Math.max(240, Math.round(svg.getBoundingClientRect().width) || 600), H = 150, L = 8, R = 8;
+  const TOP = 6, BAR = 90, AXIS = TOP + BAR + 16, KEY = H - 6;  // the bar, its time labels, and the legend
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   svg.style.height = H + "px";
   const on = power.on.map(([a, b, how]) => [toTime(a), toTime(b), how]);
@@ -205,21 +206,23 @@ function drawPower(power, { svg, title, readout }, times) {
   let t1 = times.length ? times[times.length - 1] : Math.max(...all);
   if (t1 <= t0) t1 = t0 + 1;
   const x = t => L + (Math.min(Math.max(t, t0), t1) - t0) / (t1 - t0) * (W - L - R);
-  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const rows = [["Pi on", on, css("--bat"), 6], ["PV PI manager running", running, css("--pv"), 46]];
-  for (const [label, spans, color, top] of rows) {
-    el("text", { x: L, y: top + 4 }, svg).textContent = label;
-    el("rect", { x: L, y: top + 9, width: W - L - R, height: 18, class: "track" }, svg);
-    for (const [a, b] of spans) {
-      el("rect", { x: x(a), y: top + 9, width: Math.max(1.5, x(b) - x(a)), height: 18, fill: color }, svg);
-    }
+  el("rect", { x: L, y: TOP, width: W - L - R, height: BAR, class: "track" }, svg);
+  for (const [a, b] of running) el("rect", { x: x(a), y: TOP, width: Math.max(1.5, x(b) - x(a)), height: BAR, class: "alive" }, svg);
+  for (const t of boots) el("line", { x1: x(t), x2: x(t), y1: TOP - 4, y2: TOP + BAR + 4, class: "boot-mark" }, svg);
+  for (const [t] of downs) el("line", { x1: x(t), x2: x(t), y1: TOP - 4, y2: TOP + BAR + 4, class: "down-mark" }, svg);
+  timeLabels(svg, t0, t1, x, W, AXIS + 4);
+  // The legend
+  let lx = L;
+  for (const [cls, label] of [["alive", "PV PI manager running"], ["boot-mark", "Boot"], ["down-mark", "Shutdown"]]) {
+    if (cls === "alive") el("rect", { x: lx, y: KEY - 9, width: 14, height: 10, class: cls }, svg);
+    else el("line", { x1: lx + 7, x2: lx + 7, y1: KEY - 11, y2: KEY + 2, class: cls }, svg);
+    const text = el("text", { x: lx + 20, y: KEY }, svg);
+    text.textContent = label;
+    lx += 28 + text.getComputedTextLength();
   }
-  for (const t of boots) el("line", { x1: x(t), x2: x(t), y1: 12, y2: H - B, class: "boot-mark" }, svg);
-  for (const [t] of downs) el("line", { x1: x(t), x2: x(t), y1: 12, y2: H - B, class: "down-mark" }, svg);
-  timeLabels(svg, t0, t1, x, W, H);
 
   const clock = t => new Date(t).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const cursor = el("line", { class: "cursor", y1: 12, y2: H - B, visibility: "hidden" }, svg);
+  const cursor = el("line", { class: "cursor", y1: TOP, y2: TOP + BAR, visibility: "hidden" }, svg);
   const show = event => {
     const box = svg.getBoundingClientRect();
     const px = (event.clientX - box.left) / box.width * W;
