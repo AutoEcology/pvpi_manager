@@ -69,7 +69,8 @@ def run(monkeypatch, tmp_path):
         if rules is not None:
             Schedule.model_validate({"rules": rules}).save(tmp_path / "schedules" / "test.json")
             settings["schedule"] = "test"
-        PvPiConfig(startup_delay=0, log_pvpi_stats=False, data_log_path=tmp_path, **settings).save(path)
+        settings = {"startup_delay": 0, "log_pvpi_stats": False, "data_log_path": tmp_path, **settings}
+        PvPiConfig(**settings).save(path)
         system_manager.run(PvPiConfig.from_file(str(path)))
 
     go.path = tmp_path / "config.json"
@@ -138,3 +139,15 @@ def test_a_changed_schedule_is_used_without_a_restart(run):
     with pytest.raises(Shutdown):
         run([13.1] * 10, now=datetime(2026, 10, 19, 20, 0), on_sleep=choose_a_schedule)
     assert run.board.args["set_alarm"] == (time(7, 0),)
+
+
+def test_the_power_log_has_the_boot_the_heartbeat_and_the_shutdown(run, monkeypatch, tmp_path):
+    from pvpi import power_log
+
+    monkeypatch.setattr(power_log, "boot_time", lambda: datetime(2026, 10, 19, 6, 59, 30))
+    with pytest.raises(Shutdown):
+        run([13.1] * 10, rules=[DAY], now=datetime(2026, 10, 19, 18, 59, 35), log_pvpi_stats=True)
+    events = [
+        line.split(",")[1:3] for f in (tmp_path / "power").glob("*.csv") for line in f.read_text().splitlines()[1:]
+    ]
+    assert events[0] == ["boot", ""] and ["running", ""] in events and events[-1] == ["shutdown", "schedule"]

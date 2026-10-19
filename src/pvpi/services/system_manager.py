@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from pvpi.client import PvPiClient
 from pvpi.config import PvPiConfig
 from pvpi.logging_ import RotatingCSVLogger
+from pvpi.power_log import PowerLog
 from pvpi.schedule import Schedule
 from pvpi.transports import ZmqSerialProxyInterface
 from pvpi.utils import set_system_time
@@ -94,6 +95,12 @@ def run(config: PvPiConfig):
         _logger.info("Logging PV PI statistics to %s", config.data_log_path)
         stats_data_logger = RotatingCSVLogger(config.data_log_path, config.keep_for_days)
 
+    # The power log: this boot, the manager's heartbeat, and the shutdown
+    power_log: PowerLog | None = None
+    if config.log_pvpi_stats:
+        power_log = PowerLog(config.data_log_path, config.keep_for_days, config.heartbeat_mins)
+        power_log.started()
+
     # Delay start
     if config.startup_delay:
         _logger.info("%is Startup delay", config.startup_delay)
@@ -126,11 +133,14 @@ def run(config: PvPiConfig):
     try:
         while True:
             curr_time = datetime.now()
+            if power_log:
+                power_log.beat()
             schedule = watch.get()
             if not schedule.is_on(curr_time):
                 wake = schedule.next_on(curr_time)
                 if wake is None or wake - curr_time >= watch.config.min_off - LATE_MARGIN:
                     _logger.info("Shutdown Time!")
+                    reason = "schedule"
                     break
                 # Too close to the next on time to shut down and still wake for it.
                 if not staying_on_logged:
@@ -171,6 +181,7 @@ def run(config: PvPiConfig):
                 _logger.info("Battery low: %s V (%i of %i)", bat_v, low_readings, config.low_bat_readings)
                 if low_readings >= config.low_bat_readings:
                     _logger.info("Shutdown Voltage!")
+                    reason = "low battery"
                     break
             else:
                 low_readings = 0
@@ -183,6 +194,8 @@ def run(config: PvPiConfig):
         raise
     else:
         _logger.info("Closing down...")
+        if power_log:
+            _attempt("log the shutdown", power_log.shutdown, reason)
         # A failed request is logged and the shutdown goes ahead: on a low battery the Pi
         # must still shut down.
         if _attempt("stop the watchdog", client.stop_watchdog):
