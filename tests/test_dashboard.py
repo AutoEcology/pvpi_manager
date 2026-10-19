@@ -48,18 +48,21 @@ def dashboard(tmp_path):
     servers = []
 
     def start(board=None, full_dashboard=True):
-        config = PvPiConfig(data_log_path=tmp_path / "logs", full_dashboard=full_dashboard)
+        PvPiConfig(data_log_path=tmp_path / "logs", full_dashboard=full_dashboard).save(tmp_path / "config.json")
+        config = PvPiConfig.from_file(str(tmp_path / "config.json"))
         server = DashboardServer(("127.0.0.1", 0), config, make_client=lambda: PvPiClient(interface=board or Board()))
         threading.Thread(target=server.serve_forever, daemon=True).start()
         servers.append(server)
 
-        def get(path):
+        def get(path, method="GET", body=None):
+            data = None if body is None else json.dumps(body).encode()
+            request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}{path}", data, method=method)
             try:
-                with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}{path}") as response:
-                    status, body = response.status, response.read().decode()
+                with urllib.request.urlopen(request) as response:
+                    status, text = response.status, response.read().decode()
             except urllib.error.HTTPError as err:
-                status, body = err.code, err.read().decode()
-            return status, (body if path == "/" else json.loads(body))
+                status, text = err.code, err.read().decode()
+            return status, (text if path in ("/", "/schedule") else json.loads(text))
 
         get.port = server.server_port
         return get
@@ -71,7 +74,15 @@ def dashboard(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "path, content_type", [("/", "text/html"), ("/autoecology.png", "image/png"), ("/pvpi.png", "image/png")]
+    "path, content_type",
+    [
+        ("/", "text/html"),
+        ("/schedule", "text/html"),
+        ("/dashboard.css", "text/css"),
+        ("/common.js", "text/javascript"),
+        ("/autoecology.png", "image/png"),
+        ("/pvpi.png", "image/png"),
+    ],
 )
 def test_the_page_and_logos_are_served(dashboard, path, content_type):
     port = dashboard().port
@@ -122,3 +133,48 @@ def test_history_with_no_logs_is_empty(dashboard):
 def test_history_refusals(dashboard, query, status):
     get = dashboard(full_dashboard=query != "")
     assert get("/api/history" + query)[0] == status
+
+
+DAY = {"rules": [{"kind": "daily", "on": "07:00", "off": "19:00"}]}
+
+
+def test_a_schedule_is_saved_chosen_and_deleted(dashboard, tmp_path):
+    get = dashboard()
+    assert get("/api/schedules")[1]["schedules"] == []
+    assert get("/api/schedules/day", "PUT", DAY)[0] == 200
+    assert get("/api/schedules/day")[1]["rules"][0]["on"] == "07:00:00"
+    status, listed = get("/api/schedules/active", "POST", {"name": "day"})
+    assert status == 200 and listed == {"active": "day", "folder": str(tmp_path / "schedules"), "schedules": ["day"]}
+    assert json.loads((tmp_path / "config.json").read_text())["schedule"] == "day"  # where the manager reads it
+    assert get("/api/schedules/day", "DELETE")[0] == 409  # in use
+    assert get("/api/schedules/active", "POST", {"name": None})[1]["active"] is None
+    assert get("/api/schedules/day", "DELETE")[0] == 200
+    assert get("/api/schedules/day")[0] == 404
+
+
+def test_check_gives_the_next_24_hours(dashboard):
+    status, checked = dashboard()("/api/schedules/check", "POST", DAY)
+    assert status == 200 and checked["errors"] == checked["problems"] == []
+    assert 1 <= len(checked["periods"]) <= 2 and checked["alarm"].endswith("07:00:00")
+
+
+@pytest.mark.parametrize(
+    "method, path, body, status",
+    [
+        ("PUT", "/api/schedules/day", {"rules": [{"kind": "daily", "on": "7am", "off": "19:00"}]}, 400),
+        ("PUT", "/api/schedules/short", {"rules": [{"kind": "periodic", "on_for_mins": 5, "off_for_mins": 0.5}]}, 400),
+        ("PUT", "/api/schedules/..%2Fconfig", DAY, 404),  # no paths
+        ("GET", "/api/schedules/missing", None, 404),
+        ("POST", "/api/schedules/active", {"name": "missing"}, 404),
+        ("POST", "/api/schedules/active", {"name": "../config"}, 400),
+    ],
+)
+def test_schedule_refusals(dashboard, tmp_path, method, path, body, status):
+    found, answer = dashboard()(path, method, body)
+    assert found == status and "error" in answer
+    assert not (tmp_path / "schedules").exists() or not list((tmp_path / "schedules").glob("*.json"))
+
+
+def test_check_names_the_rule_thats_wrong(dashboard):
+    checked = dashboard()("/api/schedules/check", "POST", {"rules": [DAY["rules"][0], {"kind": "daily", "on": "x"}]})[1]
+    assert checked["errors"] and all(e.startswith("Rule 2") for e in checked["errors"])

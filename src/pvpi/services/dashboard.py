@@ -8,6 +8,7 @@ import contextlib
 import csv
 import json
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -17,13 +18,17 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from pydantic import ValidationError
+
 from pvpi.client import PvPiClient
-from pvpi.config import PvPiConfig
+from pvpi.config import SCHEDULE_NAME, PvPiConfig
+from pvpi.schedule import Schedule
 from pvpi.transports import ZmqSerialProxyInterface
 
 _logger = logging.getLogger(__name__)
 
 LIVE_CACHE_SECS = 5  # several open pages share one set of readings
+MAX_BODY = 64 * 1024  # a schedule is a few hundred bytes
 DEFAULT_DAYS = 2  # the history shown first: the last two days logged
 
 # CSV column -> the key the page uses
@@ -87,6 +92,37 @@ def read_history(log_dir: Path, start: date | None = None, end: date | None = No
     return {"first": iso(first), "last": iso(last), "start": iso(start), "end": iso(end), "columns": columns}
 
 
+def _errors(err: ValidationError) -> list[str]:
+    """Pydantic's errors as short lines, e.g. "Rule 1, on: Input should be in a valid time format"."""
+    found = []
+    for e in err.errors():
+        loc = [str(x) for x in e["loc"]]
+        if loc[:1] == ["rules"] and len(loc) > 1:
+            where = f"Rule {int(loc[1]) + 1}" + "".join(f", {x}" for x in loc[3:])  # skip the rule's kind
+        else:
+            where = ", ".join(loc) or "Schedule"
+        found.append(f"{where}: {e['msg']}")
+    return found
+
+
+def check_schedule(config: PvPiConfig, body, now: datetime | None = None) -> dict:
+    """What the schedule page shows for a schedule: what's wrong with it and its next 24 hours."""
+    now = (now or datetime.now()).replace(microsecond=0)
+    try:
+        schedule = Schedule.model_validate(body)
+    except ValidationError as err:
+        return {"errors": _errors(err), "problems": [], "periods": []}
+    alarm = schedule.alarm(now + config.min_off)
+    return {
+        "errors": [],
+        "problems": config.check_schedule(schedule),
+        "now": now.isoformat(),
+        "on": schedule.is_on(now),
+        "periods": [[a.isoformat(), b.isoformat()] for a, b in schedule.periods(now, now + timedelta(hours=24))],
+        "alarm": alarm.isoformat() if alarm else None,
+    }
+
+
 class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -96,6 +132,7 @@ class DashboardServer(ThreadingHTTPServer):
         self.make_client = make_client
         self._client: PvPiClient | None = None
         self._lock = threading.Lock()  # one request at a time to the board (zmq sockets aren't thread-safe)
+        self.files_lock = threading.Lock()  # one change at a time to the config and schedule files
         self._live: tuple[float, dict] | None = None
 
     def live(self) -> dict:
@@ -136,6 +173,9 @@ class DashboardServer(ThreadingHTTPServer):
 # Path -> the package file served there, its type and how long a browser may keep it
 _FILES = {
     "/": ("dashboard.html", "text/html; charset=utf-8", "no-store"),
+    "/schedule": ("schedule.html", "text/html; charset=utf-8", "no-store"),
+    "/dashboard.css": ("dashboard.css", "text/css; charset=utf-8", "no-store"),
+    "/common.js": ("common.js", "text/javascript; charset=utf-8", "no-store"),
     "/autoecology.png": ("autoecology.png", "image/png", "max-age=86400"),
     "/pvpi.png": ("pvpi.png", "image/png", "max-age=86400"),
 }
@@ -168,8 +208,112 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "start and end are dates: YYYY-MM-DD"})
                 return
             self._json(200, read_history(Path(self.server.config.data_log_path), start, end))
+        elif url.path == "/api/schedules":
+            self._json(200, self._schedules())
+        elif name := self._schedule_name(url.path):
+            path = self.server.config.schedule_path(name)
+            if not path.exists():
+                self._json(404, {"error": f"No schedule '{name}'"})
+                return
+            try:
+                self._json(200, {"name": name, **json.loads(path.read_text())})
+            except (OSError, ValueError) as err:
+                self._json(500, {"error": f"Can't read schedule '{name}': {err}"})
         else:
             self._json(404, {"error": "not found"})
+
+    # The schedule page: schedule files in the config's schedules folder, and the one in use.
+
+    def do_POST(self):
+        body = self._body()
+        if body is None:
+            return
+        if self.path == "/api/schedules/check":
+            self._json(200, check_schedule(self.server.config, body))
+        elif self.path == "/api/schedules/active":
+            name = body.get("name") if isinstance(body, dict) else None
+            with self.server.files_lock:
+                if name is not None:
+                    if not isinstance(name, str) or not re.fullmatch(SCHEDULE_NAME, name):
+                        self._json(400, {"error": "A schedule's name is letters, numbers, - and _"})
+                        return
+                    path = self.server.config.schedule_path(name)
+                    if not path.exists():
+                        self._json(404, {"error": f"No schedule '{name}'"})
+                        return
+                    checked = check_schedule(self.server.config, json.loads(path.read_text()))
+                    if checked["errors"] or checked["problems"]:
+                        self._json(400, {"error": f"Schedule '{name}' can't be used", **checked})
+                        return
+                self._set_active(name)
+            self._json(200, self._schedules())
+        else:
+            self._json(404, {"error": "not found"})
+
+    def do_PUT(self):
+        name = self._schedule_name(self.path)
+        if not name:
+            self._json(404, {"error": "not found"})
+            return
+        body = self._body()
+        if body is None:
+            return
+        checked = check_schedule(self.server.config, body)
+        if checked["errors"] or checked["problems"]:
+            self._json(400, {"error": "The schedule can't be used", **checked})
+            return
+        with self.server.files_lock:
+            Schedule.model_validate(body).save(self.server.config.schedule_path(name))
+        self._json(200, {"name": name, **checked})
+
+    def do_DELETE(self):
+        name = self._schedule_name(self.path)
+        if not name:
+            self._json(404, {"error": "not found"})
+            return
+        with self.server.files_lock:
+            if name == self.server.config.schedule:
+                self._json(409, {"error": f"'{name}' is in use: choose another schedule first"})
+                return
+            path = self.server.config.schedule_path(name)
+            if not path.exists():
+                self._json(404, {"error": f"No schedule '{name}'"})
+                return
+            path.unlink()
+        self._json(200, self._schedules())
+
+    def _schedule_name(self, path: str) -> str | None:
+        """The NAME in /api/schedules/NAME; None for any other path (so no path can be given)."""
+        found = re.fullmatch(r"/api/schedules/(.+)", urlparse(path).path)
+        if found and found.group(1) not in ("check", "active") and re.fullmatch(SCHEDULE_NAME, found.group(1)):
+            return found.group(1)
+        return None
+
+    def _schedules(self) -> dict:
+        folder = self.server.config.schedules_folder
+        names = sorted(p.stem for p in folder.glob("*.json") if re.fullmatch(SCHEDULE_NAME, p.stem))
+        return {"active": self.server.config.schedule, "folder": str(folder), "schedules": names}
+
+    def _set_active(self, name: str | None) -> None:
+        """Choose the schedule in use, in the config file the manager reads (it picks it up)."""
+        config = self.server.config
+        if config._source is not None:
+            config = PvPiConfig.from_file(str(config._source))  # as it is on disk now
+        config.schedule = name
+        if config._source is not None:
+            config.save(config._source)
+        self.server.config = config
+
+    def _body(self):
+        """The request's JSON, or None after answering 400."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length > MAX_BODY:
+                raise ValueError("too long")
+            return json.loads(self.rfile.read(length) or b"null")
+        except ValueError as err:
+            self._json(400, {"error": f"Expected JSON: {err}"})
+            return None
 
     def _json(self, status: int, body: dict) -> None:
         self._send(status, json.dumps(body, separators=(",", ":")).encode(), "application/json")
