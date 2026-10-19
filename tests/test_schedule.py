@@ -1,6 +1,7 @@
 """Schedules: when they're on, when they next turn on, the wake alarm, and what's refused."""
 
 from datetime import datetime, time, timedelta
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -113,3 +114,18 @@ def test_a_saved_schedule_reads_back(tmp_path):
     schedule(DAY, CYCLE).save(path)
     assert Schedule.load(path) == schedule(DAY, CYCLE)
     assert not list(path.parent.glob(".*.tmp"))
+
+
+DEMOS = sorted((Path(__file__).parent.parent / "schedules").glob("*.json"))
+
+
+@pytest.mark.parametrize("path", DEMOS, ids=[p.stem for p in DEMOS])
+def test_every_demo_schedule_works_with_the_default_config(path):
+    from pvpi.config import PvPiConfig
+
+    config = PvPiConfig()
+    assert config.check_schedule(Schedule.load(path)) == []
+
+
+def test_there_are_demo_schedules():
+    assert len(DEMOS) >= 6

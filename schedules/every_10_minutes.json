@@ -1,0 +1,20 @@
+{
+  "rules": [
+    {
+      "days": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ],
+      "kind": "periodic",
+      "on_for_mins": 5.0,
+      "off_for_mins": 5.0,
+      "start": "00:00:00",
+      "end": "00:00:00"
+    }
+  ]
+}

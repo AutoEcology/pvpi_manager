@@ -129,6 +129,8 @@ Both take `days`, the days a rule starts on (every day by default). For example,
 ]}
 ```
 
+The repo's `schedules` folder comes with demo schedules to use as they are or as a starting point: `daytime`, `weekdays_office_hours`, `dawn_and_dusk`, `night_only`, `every_10_minutes` and `daytime_duty_cycle`.
+
 Set `schedule` in the config to the file's name (`"schedule": "field"`) to use it. The manager picks up a new or changed schedule within 10 seconds, with no restart. A schedule is refused if it has an on period too short for the Pi to start up (`startup_delay` + 60 s) or an off period too short for it to shut down and the power to go off (`power_off_delay` + 60 s).
 
 The schedule uses the Pi's clock. In the field, with no network, enable `time_mcu2pi` so the Pi takes its time from the PV Pi's clock when it starts, and set that clock once with `pvpi set-mcu-clock`.

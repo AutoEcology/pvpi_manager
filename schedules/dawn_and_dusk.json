@@ -1,0 +1,32 @@
+{
+  "rules": [
+    {
+      "days": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ],
+      "kind": "daily",
+      "on": "05:00:00",
+      "off": "09:00:00"
+    },
+    {
+      "days": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ],
+      "kind": "daily",
+      "on": "16:00:00",
+      "off": "20:00:00"
+    }
+  ]
+}
