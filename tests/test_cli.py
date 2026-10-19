@@ -7,13 +7,27 @@ from pvpi import cli
 from pvpi.client import PvPiClient
 
 
+REPLIES = {
+    b"GET_ALIVE": "ALIVE",
+    b"GET_VERSION": "VERSION,PVPi,D,1.15",
+    b"GET_TIME": "GET_TIME,26,10,19,11,0,0",
+    b"GET_CHARGE_STATE": "CHARGE_STATE,3",
+    b"GET_FAULT_CODE": "FAULT_CODE,0",
+    b"GET_BAT_V": "MILLIVOLTS,13200",
+    b"GET_BAT_C": "MILLIAMPS,500",
+    b"GET_PV_V": "MILLIVOLTS,18000",
+    b"GET_PV_C": "MILLIAMPS,1200",
+    b"GET_TEMP": "TEMP,25",
+}
+
+
 class Board:
     def __init__(self):
         self.sent = []
 
     def write(self, message):
         self.sent.append(message)
-        return "SET,OK"
+        return REPLIES.get(message, "SET,OK")
 
     def close(self):
         pass
@@ -41,9 +55,21 @@ def test_currents_take_decimals(invoke, command, sent):
     assert invoke.sent == [sent]
 
 
-@pytest.mark.parametrize("command, request_", [("set-mppt", b"SET_MPPT_STATE"), ("set-charging", b"SET_CHARGE_STATE"), ("set-ts", b"SET_TS_STATE")])
+@pytest.mark.parametrize(
+    "command, request_",
+    [("set-mppt", b"SET_MPPT_STATE"), ("set-charging", b"SET_CHARGE_STATE"), ("set-ts", b"SET_TS_STATE")],
+)
 def test_on_off_commands_need_a_choice(invoke, command, request_):
     assert invoke(command).exit_code != 0 and invoke.sent == []  # no flag: nothing changes
     assert invoke(command, "--enable").exit_code == 0
     assert invoke(command, "--disable").exit_code == 0
     assert invoke.sent == [request_ + b",ON", request_ + b",OFF"]
+
+
+def test_connection_test_says_it_resets_the_board_before_it_does(invoke):
+    assert "default settings" in invoke("connection-test", "--help").output
+    result = invoke("connection-test")
+    assert result.exit_code == 0, result.output
+    assert "default settings" in result.output
+    sets = [m for m in invoke.sent if m.startswith(b"SET_")]
+    assert sets[0].startswith(b"SET_TIME") and b"SET_WAKEUP_MILLIVOLT,13000" in sets

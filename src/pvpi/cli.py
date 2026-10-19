@@ -32,27 +32,30 @@ def set_mcu_clock():
     logger.info("Current MCU time: %s", pvpi.get_mcu_time())
 
 
-@cli.command(short_help="Run Pv Pi function test with default parameters")
+@cli.command(
+    short_help="Test the connection, and reset the Pv Pi to its default settings",
+    help="Test the connection to the PV PI and report its readings. This also resets the board to its "
+    "default settings: its clock from the Pi's clock, MPPT on, charging on, battery temperature monitoring off, "
+    "10 A maximum charge current and a 13 V wake-up voltage.",
+)
 def connection_test():
     client = PvPiClient()
     logger.info("Running PV PI function test!")
     logger.info("Checking connection...")
 
-    is_alive = client.get_alive()
-    client.set_mcu_time()
-    mcu_time = client.get_mcu_time()
-    logger.info("Alive: %s", is_alive)
-
+    logger.info("Alive: %s", client.get_alive())
     device_name, hw_version, fw_version = client.get_device_version()
     logger.info("Device name: %s, PCB version: %s, Firmware version: %s", device_name, hw_version, fw_version)
-
-    logger.info("Current MCU time: %s", mcu_time)
+    logger.info("Current MCU time: %s", client.get_mcu_time())
     logger.info("System time: %s", datetime.now().strftime("%y-%m-%d %H:%M:%S"))
 
-    logger.info("Set PV PI time from system time: %s", client.set_mcu_time())
-    logger.info("New MCU time: %s", client.get_mcu_time())
-
-    logger.info("PV PI Setting States...")
+    logger.warning(
+        "Resetting the PV PI to its default settings: clock from the Pi's clock, MPPT on, charging on, "
+        "battery temperature monitoring off, 10 A maximum charge current, 13 V wake-up voltage. "
+        "The manager sets the wake-up voltage back to the config's wake_up_volt when it next starts."
+    )
+    client.set_mcu_time()
+    logger.info("PV PI clock set from the Pi's clock: %s", client.get_mcu_time())
     client.set_mppt_state("ON")
     logger.info("PV PI Set MPPT State: ON")
     client.set_ts_state("OFF")
@@ -112,12 +115,14 @@ def get_charge_state():
     client = PvPiClient()
     logger.info("BQ25756 Charge state: %s", client.get_charge_state())
 
+
 @cli.command(short_help="Get PV Pi PCB and Firmwware version")
 def get_version():
     client = PvPiClient()
     device_name, hw_version, fw_version = client.get_device_version()
     logger.info("Device name: %s, PCB version: %s, Firmware version: %s", device_name, hw_version, fw_version)
-    
+
+
 @cli.command(short_help="Set the maximum input current for the PV Pi")
 @click.option("--current", type=float, required=True, help="Maximum input current in amps (0.4 to 8)")
 def set_input_current(current: float):
@@ -125,12 +130,14 @@ def set_input_current(current: float):
     client.set_max_input_current(current)
     logger.info("PV Pi max input current set to: %s", current)
 
+
 @cli.command(short_help="Set the maximum battery charge current for the PV Pi")
 @click.option("--current", type=float, required=True, help="Maximum battery charge current in amps (0.4 to 10)")
 def set_charge_current(current: float):
     client = PvPiClient()
     client.set_max_charge_current(current)
     logger.info("PV Pi max battery charge current set to: %s", current)
+
 
 @cli.command(short_help="Enable/Disable Pv Pi MPPT")
 @click.option("--enable/--disable", required=True, help="Enable or disable PV Pi MPPT.")
@@ -212,9 +219,11 @@ def config_path():
 def uninstall():
     uninstall_systemd()
 
+
 @cli.command(short_help="Restart Pv Pi logger & UART proxy systemd services")
 def restart():
     restart_systemd()
+
 
 if __name__ == "__main__":
     cli()
