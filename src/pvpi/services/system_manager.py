@@ -95,16 +95,17 @@ def run(config: PvPiConfig):
         _logger.info("Logging PV PI statistics to %s", config.data_log_path)
         stats_data_logger = RotatingCSVLogger(config.data_log_path, config.keep_for_days)
 
-    # The power log: this boot, the manager's heartbeat, and the shutdown
-    power_log: PowerLog | None = None
-    if config.log_pvpi_stats:
-        power_log = PowerLog(config.data_log_path, config.keep_for_days, config.heartbeat_mins)
-        power_log.started()
-
     # Delay start
     if config.startup_delay:
         _logger.info("%is Startup delay", config.startup_delay)
         time.sleep(config.startup_delay)
+
+    # The power log: this boot, the manager's heartbeat, and the shutdown. Started after the
+    # delay, so a clock set from the network by then is used for the boot time.
+    power_log: PowerLog | None = None
+    if config.log_pvpi_stats:
+        power_log = PowerLog(config.data_log_path, config.keep_for_days, config.heartbeat_mins)
+        power_log.started()
 
     _logger.info("Log period: %i minutes", config.log_period)
     watch = _ScheduleWatch(config)
