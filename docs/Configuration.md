@@ -2,7 +2,7 @@
 
 # Configuration
 
-`pvpi install` creates a `config.json` with the default settings: in the pvpi_manager folder if you cloned the repo, or in `~/.config/pvpi/` if you installed with pip (`pvpi install --config <file>` puts it elsewhere). You can edit it through the **Config** tab on the [dashboard](Services-and-dashboard.md). Click **Save**, then **Restart** to apply all settings. **Reload** restores the saved settings in the form.
+`pvpi install` creates a `config.json` with the default settings: in the pvpi_manager folder if you cloned the repo, or in `~/.config/pvpi/` if you installed with pip (`pvpi install --config <file>` puts it elsewhere).
 
 To see which file your services use:
 
@@ -10,7 +10,17 @@ To see which file your services use:
 uv run pvpi config-path
 ```
 
-Edit it, then `uv run pvpi restart` (schedule changes don't need a restart). Settings the PV Pi wouldn't accept are refused, with a message saying why.
+You can edit it through the **Config** tab on the [dashboard](Services-and-dashboard.md):
+
+- **Save** checks your changes and writes them to the config file.
+- **Reload** discards unsaved edits and loads the saved settings.
+- **Restart** restarts the PV Pi services to apply your saved settings.
+
+If a setting can't be used, the page tells you why. Choose your power schedule on the **Schedule** tab.
+
+![The dashboard's Config editor](images/dashboard_config.png)
+
+Editing the file by hand? Run `uv run pvpi restart` afterwards (schedule changes don't need a restart).
 
 <!-- options -->
 | Option | Default | What it's for |

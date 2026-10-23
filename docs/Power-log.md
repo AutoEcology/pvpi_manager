@@ -12,8 +12,10 @@ Each row has a `Timestamp`, an `Event`, a `Reason` and the `Boot time` it belong
 
 If your device lost power unexpectedly with no shutdown event logged, then the power was likely cut, or the Pi crashed.
 
-The Power chart at the bottom of the dashboard's readings page shows all events and uptime as well as the expected on and off times from your selected schedule. Hover over it for the details.
+Boot times need your Pi's clock to be right once the manager starts. With no network, turn on `time_mcu2pi`.
 
-![The dashboard's Power chart](images/dashboard_power.png)
+The Up time chart at the bottom of the dashboard's Metrics page shows all events and uptime as well as the expected on and off times from your selected schedule. Hover over it for the details.
+
+![The dashboard's Up time chart](images/dashboard_power.png)
 
 Next: [Configuration](Configuration.md)

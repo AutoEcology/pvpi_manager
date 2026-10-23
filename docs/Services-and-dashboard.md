@@ -26,7 +26,7 @@ uv run pvpi install --dashboard
 
 Then open `http://<your-pi>:8501` (e.g. `http://raspberrypi.local:8501`) on the same network. It's light-weight enough to run alongside your own programs, even on a Pi Zero. There's no login, so anyone who can reach port 8501 can change your schedule, edit your config or sync the PV Pi clock or restart the PV Pi services.
 
-![The dashboard's readings page](images/dashboard_readings.png)
+![The dashboard's Metrics page](images/dashboard_readings.png)
 
 The **Config** tab edits your existing `config.json` through a form. Settings are checked
 before saving, including whether the active schedule still works with the new settings.
@@ -36,6 +36,8 @@ and **Restart** the PV Pi services to apply all settings. Save or reload unsaved
 restarting. Restart reloads the dashboard settings and restarts the UART proxy and manager.
 The dashboard user needs permission to run `sudo -n systemctl restart pvpi_uart.service pvpi_manager.service`
 (or run the dashboard as root). Restart failures are shown on the page.
+
+![The dashboard's Config page](images/dashboard_config.png)
 
 The **Schedule** tab also shows the PV Pi and Raspberry Pi clocks in the Pi's local time.
 **Sync Raspberry Pi time to PV Pi** copies the Raspberry Pi's clock to the PV Pi, like
