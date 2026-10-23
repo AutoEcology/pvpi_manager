@@ -2,7 +2,9 @@
 
 # Configuration
 
-`pvpi install` creates a `config.json` with the default settings: in the pvpi_manager folder if you cloned the repo, or in `~/.config/pvpi/` if you installed with pip (`pvpi install --config <file>` puts it elsewhere). To see which file your services use:
+`pvpi install` creates a `config.json` with the default settings: in the pvpi_manager folder if you cloned the repo, or in `~/.config/pvpi/` if you installed with pip (`pvpi install --config <file>` puts it elsewhere). You can edit it through the **Config** tab on the [dashboard](Services-and-dashboard.md). Click **Save**, then **Restart** to apply all settings. **Reload** restores the saved settings in the form.
+
+To see which file your services use:
 
 ```shell
 uv run pvpi config-path
@@ -13,7 +15,7 @@ Edit it, then `uv run pvpi restart` (schedule changes don't need a restart). Set
 <!-- options -->
 | Option | Default | What it's for |
 |---|---|---|
-| `uart_port` | set automatically | The serial port the PV Pi is on (found automatically) |
+| `uart_port` | set automatically | The serial port the PV Pi is on (found automatically for Raspberry Pi's) |
 | `log_period` | `5` | Minutes between readings in the log |
 | `startup_delay` | `20` | Seconds the manager waits after starting before it does anything |
 | `low_bat_volt` | `12.9` | Battery voltage at which the Pi shuts down |
@@ -30,7 +32,7 @@ Edit it, then `uv run pvpi restart` (schedule changes don't need a restart). Set
 | `enable_watchdog` | `false` | Have the PV Pi restart the Pi if the manager stops answering |
 | `watchdog_period_mins` | `2` | Minutes the PV Pi waits to hear from the manager before restarting the Pi (1 to 60) |
 | `time_pi2mcu` | `false` | When the Pi starts, set the PV Pi's clock from the Pi's |
-| `time_mcu2pi` | `false` | When the Pi starts, set its clock from the PV Pi's (use this without a network) |
+| `time_mcu2pi` | `false` | When the Pi starts, set its clock from the PV Pi's (use this if your Pi isn't connected to a network) |
 | `full_dashboard` | `true` | Show the history charts on the dashboard, not just the live readings |
 <!-- /options -->
 

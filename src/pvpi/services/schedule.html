@@ -3,14 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PV Pi Schedule</title>
+<title>PV Pi — Set Schedule</title>
 <script>
 try { const theme = localStorage.getItem("pvpi-theme"); if (theme) document.documentElement.dataset.theme = theme; } catch (e) {}
 </script>
 <link rel="stylesheet" href="/dashboard.css">
 <style>
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 10px; }
-.intro { margin: 22px 0 6px; text-align: center; font-size: 1.15rem; line-height: 1.55; }
+.clocks { max-width: 720px; }
+.clocks .value { font-size: 1.15rem; }
 .picker { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
 .picker select { min-width: 16em; max-width: 100%; }
 .in-use { font-weight: 600; }
@@ -29,10 +30,16 @@ button:disabled { opacity: 0.5; cursor: default; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
 .bar { position: relative; height: 44px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin-top: 8px; }
 .bar .on { position: absolute; top: 0; bottom: 0; background: var(--pv); }
+.schedule-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 10px 0; }
+.schedule-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.schedule-legend .swatch { width: 18px; height: 12px; border: 1px solid var(--line); border-radius: 3px; background: var(--bg); }
+.schedule-legend .swatch.on { background: var(--pv); }
 .ticks { position: relative; height: 22px; font-size: 14px; margin-top: 2px; color: var(--muted); }
 .ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
-.ticks span:first-child { transform: none; }
+.ticks span:first-child { transform: none; font-size: 16px; font-weight: 700; color: var(--text); }
 .ticks span:last-child { transform: translateX(-100%); }
+.schedule-about { margin-top: 28px; }
+.schedule-about summary { cursor: pointer; font-weight: 600; }
 ul.plain { margin: 6px 0 0; padding-left: 18px; }
 </style>
 </head>
@@ -49,11 +56,24 @@ ul.plain { margin: 6px 0 0; padding-left: 18px; }
       </button>
     </div>
   </header>
-  <nav><a href="/">Readings</a><a href="/schedule" aria-current="page">Schedule</a></nav>
+  <nav><a href="/">Metrics</a><a href="/schedule" aria-current="page">Schedule</a><a href="/config">Config</a></nav>
 
-  <p class="intro">Here's where you can create and run a power schedule for your Pi. Choose when it should be on
-    (every day, on certain days, or on a repeating cycle like 5 minutes on and 5 off) and the PV PI switches it off in
-    between to save battery, then wakes it up again on time. With no schedule, your Pi just stays on.</p>
+  <h2 class="page-title">Set Schedule</h2>
+  <p class="intro">Here's where you can create and run a power schedule for your Pi. Choose when it should be on and off,
+    either every day, on certain days, or on a repeating cycle like 5 minutes on and 5 off.
+    If you enable "<strong>Cut power after shutdown</strong>" in the config, the PV Pi switches power to your Pi off
+    after shutdown to save battery, and then wakes it up again on time. With no schedule, your Pi stays on,
+    except when the battery voltage is low.</p>
+
+  <div class="tiles clocks">
+    <div class="tile"><div class="label">PV Pi time</div><div class="value" id="pvpi-time">–</div></div>
+    <div class="tile"><div class="label">Raspberry Pi time</div><div class="value" id="pi-time">–</div></div>
+  </div>
+  <div class="actions">
+    <button type="button" id="sync-time">Sync Raspberry Pi time to PV Pi</button>
+    <span id="clock-status" class="muted" role="status" aria-live="polite"></span>
+  </div>
+  <p class="muted">Times use the Raspberry Pi's local time. Sync copies its clock to the PV Pi.</p>
 
   <h2>Schedules</h2>
   <div class="picker">
@@ -82,6 +102,10 @@ ul.plain { margin: 6px 0 0; padding-left: 18px; }
       <div id="summary" class="muted">–</div>
       <div class="bar" id="bar"></div>
       <div class="ticks" id="ticks"></div>
+      <div class="schedule-legend muted" aria-label="Schedule legend">
+        <span><span class="swatch on" aria-hidden="true"></span>Scheduled on</span>
+        <span><span class="swatch" aria-hidden="true"></span>Scheduled off</span>
+      </div>
       <ul class="plain" id="periods"></ul>
       <ul class="plain bad" id="problems"></ul>
     </div>
@@ -93,11 +117,50 @@ ul.plain { margin: 6px 0 0; padding-left: 18px; }
       <span id="status" class="muted"></span>
     </div>
   </section>
+
+  <details class="card schedule-about">
+    <summary>About PV Pi Schedules</summary>
+    <p>The PV Pi only has a 24-hour alarm, so the Raspberry Pi handles which days it should stay on.</p>
+    <p>If the next scheduled day is more than a day away, the Raspberry Pi wakes up briefly each day.
+      The PV Pi Manager checks the schedule, sets the next alarm and shuts the Pi down again.
+      On a scheduled day, it stays on for the times you've chosen.</p>
+    <p>If the PV Pi Manager shuts the Raspberry Pi down because the battery is low, it stays off until
+      the next scheduled wake-up alarm if one is set, even if the battery rises above the wake voltage before then.
+      The alarm takes priority over the wake voltage.</p>
+  </details>
 </main>
 
 <script src="/common.js"></script>
 <script>
 "use strict";
+function showClocks(data) {
+  $("pvpi-time").textContent = data.pvpi ? data.pvpi.replace("T", " ") : "Unavailable";
+  $("pi-time").textContent = data.raspberry_pi.replace("T", " ");
+  if (data.error) { $("clock-status").textContent = "Couldn't read the PV Pi clock: " + data.error; $("clock-status").className = "bad"; }
+}
+let clockBusy = false;
+async function refreshClocks() {
+  if (document.hidden || clockBusy) return;
+  clockBusy = true;
+  try {
+    const data = await getJSON("/api/clocks"); showClocks(data);
+    if (!data.error) { $("clock-status").textContent = "Updated just now"; $("clock-status").className = "muted"; }
+  } catch (err) { $("clock-status").textContent = err.message; $("clock-status").className = "bad"; }
+  finally { clockBusy = false; }
+}
+$("sync-time").onclick = async () => {
+  if (clockBusy) return;
+  clockBusy = true; $("sync-time").disabled = true;
+  try {
+    showClocks(await getJSON("/api/clocks/sync", {}));
+    $("clock-status").textContent = "PV Pi clock synced from Raspberry Pi"; $("clock-status").className = "muted";
+  } catch (err) { $("clock-status").textContent = "Sync failed: " + err.message; $("clock-status").className = "bad"; }
+  finally { clockBusy = false; $("sync-time").disabled = false; }
+};
+refreshClocks();
+setInterval(refreshClocks, 10000);
+document.addEventListener("visibilitychange", refreshClocks);
+
 const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const NEW_RULE = {
@@ -125,9 +188,9 @@ async function refreshList() {
   const pick = $("pick");
   const entry = (value, text) => { const o = document.createElement("option"); o.value = value; o.textContent = text; return o; };
   pick.replaceChildren(
+    entry(NEW, "+ New schedule"),
     entry(NONE, "Always on (no schedule)" + (listed.active === null ? " (in use)" : "")),
-    ...listed.schedules.map(name => entry(name, name + (name === listed.active ? " (in use)" : ""))),
-    entry(NEW, "+ New schedule"));
+    ...listed.schedules.map(name => entry(name, name + (name === listed.active ? " (in use)" : ""))));
   pick.value = shown();
   $("in-use").textContent = listed.active === null ? "always on (no schedule)" : listed.active;
   $("folder").textContent = "Schedule files are kept in " + listed.folder;
@@ -203,9 +266,8 @@ function drawRules() {
     }
     const note = document.createElement("div");
     note.className = "muted";
-    note.textContent = rule.kind === "daily"
-      ? "On from the first time to the second, into the next day if the second is earlier."
-      : "On and off in turn, starting each day at the first time. The same two times mean all day.";
+    note.hidden = rule.kind === "daily";
+    note.textContent = "On and off in turn, starting each day at the first time. The same two times mean all day.";
     const days = document.createElement("div");
     days.className = "days";
     days.append("Starts on:");
@@ -244,7 +306,7 @@ async function check() {
   $("ticks").replaceChildren(...($("bar").clientWidth < 520 ? [0, 12, 24] : [0, 6, 12, 18, 24]).map(h => {  // fewer labels on a phone
     const s = document.createElement("span");
     s.style.left = (h / 24 * 100) + "%";
-    s.textContent = h === 0 ? "now" : whenMs(start + h * 3600 * 1000);
+    s.textContent = h === 0 ? "Now" : whenMs(start + h * 3600 * 1000);
     return s;
   }));
   const ons = c.periods.length;

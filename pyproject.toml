@@ -27,7 +27,7 @@ dev = [
 package = true
 
 [tool.setuptools.package-data]
-"pvpi.services" = ["dashboard.html", "schedule.html", "dashboard.css", "common.js", "autoecology.png", "pvpi.png"]  # the dashboard's page and logos
+"pvpi.services" = ["dashboard.html", "schedule.html", "config.html", "dashboard.css", "common.js", "autoecology.png", "pvpi.png"]  # the dashboard's page and logos
 
 [project.scripts]
 pvpi = "pvpi.cli:cli"

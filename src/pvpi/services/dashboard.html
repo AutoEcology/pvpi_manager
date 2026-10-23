@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PV Pi Dashboard</title>
+<title>PV Pi Metrics</title>
 <script>
 // The theme picked with the toggle, before the page draws (so it doesn't flash the other one)
 try { const theme = localStorage.getItem("pvpi-theme"); if (theme) document.documentElement.dataset.theme = theme; } catch (e) {}
@@ -23,16 +23,20 @@ try { const theme = localStorage.getItem("pvpi-theme"); if (theme) document.docu
       </button>
     </div>
   </header>
-  <nav><a href="/" aria-current="page">Readings</a><a href="/schedule">Schedule</a></nav>
+  <nav><a href="/" aria-current="page">Metrics</a><a href="/schedule">Schedule</a><a href="/config">Config</a></nav>
+
+  <h2 class="page-title">Metrics</h2>
 
   <div class="tiles">
-    <div class="tile"><div class="label">Estimated charge</div><div class="value" id="soc">–</div></div>
+    <div class="tile"><div class="label">Estimated charge*</div><div class="value" id="soc">–</div></div>
     <div class="tile"><div class="label">Battery voltage</div><div class="value" id="bat_v">–</div></div>
     <div class="tile"><div class="label">Battery current</div><div class="value" id="bat_c">–</div></div>
     <div class="tile"><div class="label">Solar voltage</div><div class="value" id="pv_v">–</div></div>
     <div class="tile"><div class="label">Solar current</div><div class="value" id="pv_c">–</div></div>
     <div class="tile"><div class="label">Board temperature</div><div class="value" id="temp">–</div></div>
   </div>
+  <p class="muted">* Estimated charge is based off of the battery voltage reading and compared against a standard
+    voltage-capacity curve for a 12V LiFePO4 battery at rest.</p>
 
   <section id="history" hidden>
     <h2>History</h2>
@@ -47,7 +51,7 @@ try { const theme = localStorage.getItem("pvpi-theme"); if (theme) document.docu
     <div class="charts" id="battery"></div>
     <h2>Board temperature</h2>
     <div class="charts" id="thermal"></div>
-    <h2>Power</h2>
+    <h2>Up time</h2>
     <div class="charts" id="power"></div>
   </section>
 </main>

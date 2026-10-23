@@ -19,7 +19,7 @@ _REPLACED = ("schedule_time", "shutdown_time", "wakeup_time")
 
 class PvPiConfig(BaseSettings, extra="forbid"):
     uart_port: str = Field(
-        default_factory=default_uart_port, description="The serial port the PV Pi is on (found automatically)"
+        default_factory=default_uart_port, description="The serial port the PV Pi is on (found automatically for Raspberry Pi's)"
     )
 
     log_period: int = Field(5, description="Minutes between readings in the log", gt=0)  # mins
@@ -74,7 +74,7 @@ class PvPiConfig(BaseSettings, extra="forbid"):
     # Clocks
     time_pi2mcu: bool = Field(False, description="When the Pi starts, set the PV Pi's clock from the Pi's")
     time_mcu2pi: bool = Field(
-        False, description="When the Pi starts, set its clock from the PV Pi's (use this without a network)"
+        False, description="When the Pi starts, set its clock from the PV Pi's (use this if your Pi isn't connected to a network)"
     )
 
     # Dashboard

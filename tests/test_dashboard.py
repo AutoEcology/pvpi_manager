@@ -62,7 +62,7 @@ def dashboard(tmp_path):
                     status, text = response.status, response.read().decode()
             except urllib.error.HTTPError as err:
                 status, text = err.code, err.read().decode()
-            return status, (text if path in ("/", "/schedule") else json.loads(text))
+            return status, (text if path in ("/", "/schedule", "/config") else json.loads(text))
 
         get.port = server.server_port
         return get
@@ -78,6 +78,7 @@ def dashboard(tmp_path):
     [
         ("/", "text/html"),
         ("/schedule", "text/html"),
+        ("/config", "text/html"),
         ("/dashboard.css", "text/css"),
         ("/common.js", "text/javascript"),
         ("/autoecology.png", "image/png"),
@@ -103,6 +104,9 @@ def test_a_board_that_doesnt_answer_is_a_503_and_the_server_keeps_serving(dashbo
     assert get("/api/live")[0] == 503
     assert get("/api/live")[0] == 503
     assert get("/")[0] == 200
+    clocks = get("/api/clocks")[1]
+    assert clocks["pvpi"] is None and clocks["raspberry_pi"] and clocks["error"]
+    assert get("/api/clocks/sync", "POST", {})[0] == 503
 
 
 @pytest.mark.parametrize(
@@ -205,3 +209,91 @@ def test_history_has_the_scheduled_on_times(dashboard, tmp_path):
     get("/api/schedules/active", "POST", {"name": "day"})
     expected = get("/api/history?start=2026-09-12&end=2026-09-12")[1]["power"]["expected"]
     assert expected == [["2026-09-12T07:00:00", "2026-09-12T19:00:00"]]
+
+
+
+def test_config_saves_settings_preserves_schedule_and_refuses_stale_forms(dashboard, tmp_path):
+    get = dashboard()
+    get("/api/schedules/day", "PUT", DAY)
+    get("/api/schedules/active", "POST", {"name": "day"})
+    original = get("/api/config")[1]["values"]
+    status, answer = get("/api/config", "PUT", {"original": original, "values": {"keep_for_days": 14}})
+    assert status == 200 and answer["values"]["keep_for_days"] == 14
+    saved = PvPiConfig.from_file(str(tmp_path / "config.json"))
+    assert saved.keep_for_days == 14 and saved.schedule == "day" and saved.uart_port == original["uart_port"]
+    assert get("/api/config", "PUT", {"original": original, "values": {"keep_for_days": 3}})[0] == 409
+    assert get("/api/config")[1]["values"]["keep_for_days"] == 14
+
+
+@pytest.mark.parametrize("values", [
+    {"low_bat_volt": 14},  # shutdown must be below wake voltage
+    {"startup_delay": 50000},  # the active schedule must remain workable
+    {"time_pi2mcu": True, "time_mcu2pi": True},
+])
+def test_invalid_config_does_not_change_the_file(dashboard, tmp_path, values):
+    get = dashboard()
+    get("/api/schedules/day", "PUT", DAY)
+    get("/api/schedules/active", "POST", {"name": "day"})
+    original = get("/api/config")[1]["values"]
+    before = (tmp_path / "config.json").read_bytes()
+    assert get("/api/config", "PUT", {"original": original, "values": values})[0] == 400
+    assert (tmp_path / "config.json").read_bytes() == before
+
+
+def test_clock_sync_uses_the_raspberry_pi_clock(dashboard):
+    from datetime import datetime
+
+    class ClockBoard(Board):
+        def __init__(self):
+            super().__init__()
+            self.clock = datetime(2020, 1, 1)
+            self.writes = []
+
+        def write(self, message):
+            self.writes.append(message)
+            if message.startswith(b"SET_TIME,"):
+                parts = list(map(int, message.decode().split(",")[1:]))
+                parts[0] += 2000
+                self.clock = datetime(*parts)
+                return "SET_TIME,OK"
+            if message == b"GET_TIME":
+                return self.clock.strftime("GET_TIME,%y,%m,%d,%H,%M,%S")
+            return super().write(message)
+
+    board = ClockBoard()
+    get = dashboard(board=board)
+    clocks = get("/api/clocks")[1]
+    assert clocks["pvpi"] == "2020-01-01T00:00:00" and board.writes == [b"GET_TIME"]
+    status, clocks = get("/api/clocks/sync", "POST", {})
+    assert status == 200 and clocks["error"] is None
+    assert abs((datetime.fromisoformat(clocks["raspberry_pi"]) - board.clock).total_seconds()) < 2
+    assert board.writes[-2].startswith(b"SET_TIME,") and board.writes[-1] == b"GET_TIME"
+
+
+
+def test_restart_services_applies_saved_settings_and_reports_failure(dashboard, tmp_path, monkeypatch):
+    import subprocess
+
+    get = dashboard()
+    config_path = tmp_path / "config.json"
+    saved = PvPiConfig.from_file(str(config_path))
+    saved.full_dashboard = False
+    saved.save(config_path)
+    calls = []
+
+    def restart(command, **kwargs):
+        calls.append(command)
+
+    monkeypatch.setattr("pvpi.services.dashboard.subprocess.run", restart)
+    status, answer = get("/api/services/restart", "POST", {})
+    assert status == 200 and answer["values"]["full_dashboard"] is False
+    assert calls[0][-4:] == ["systemctl", "restart", "pvpi_uart.service", "pvpi_manager.service"]
+    assert get("/api/history")[0] == 404  # dashboard has reloaded the saved settings too
+
+    def fail(command, **kwargs):
+        raise subprocess.CalledProcessError(1, command, stderr="permission denied")
+
+    monkeypatch.setattr("pvpi.services.dashboard.subprocess.run", fail)
+    status, answer = get("/api/services/restart", "POST", {})
+    assert status == 503 and "permission denied" in answer["error"]
+    assert get("/")[0] == 200

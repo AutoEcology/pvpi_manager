@@ -1,14 +1,16 @@
-"""A small web dashboard: live PV PI readings and charts of the logged history.
+"""A small web dashboard for readings, schedules, clocks and manager configuration.
 
-The server only reads the CSV logs and asks the UART proxy; the page (dashboard.html) draws
-the charts in the browser, so the Pi does little more than serve a few kilobytes of JSON.
+The standard-library server reads CSV logs, uses the UART proxy and saves validated settings.
+The pages draw charts and build forms in the browser, keeping work on the Pi small.
 """
 
 import contextlib
 import csv
 import json
 import logging
+import os
 import re
+import subprocess
 import threading
 import time
 from collections.abc import Callable
@@ -29,7 +31,7 @@ from pvpi.transports import ZmqSerialProxyInterface
 _logger = logging.getLogger(__name__)
 
 LIVE_CACHE_SECS = 5  # several open pages share one set of readings
-MAX_BODY = 64 * 1024  # a schedule is a few hundred bytes
+MAX_BODY = 64 * 1024  # config and schedule requests are small
 DEFAULT_DAYS = 2  # the history shown first: the last two days logged
 
 # CSV column -> the key the page uses
@@ -186,6 +188,25 @@ class DashboardServer(ThreadingHTTPServer):
             self._live = (time.monotonic(), readings)
             return readings
 
+    def clocks(self, sync: bool = False) -> dict:
+        """Read both local clocks, optionally setting the board from the Raspberry Pi first."""
+        with self._lock:
+            try:
+                if self._client is None:
+                    self._client = self.make_client()
+                if sync:
+                    self._client.set_mcu_time()
+                mcu = self._client.get_mcu_time()
+                error = None
+            except Exception as err:
+                self._drop_client()
+                mcu, error = None, str(err)
+            return {
+                "pvpi": mcu.isoformat(timespec="seconds") if mcu else None,
+                "raspberry_pi": datetime.now().isoformat(timespec="seconds"),
+                "error": error,
+            }
+
     def _drop_client(self) -> None:
         if self._client is not None:
             with contextlib.suppress(Exception):
@@ -201,6 +222,7 @@ class DashboardServer(ThreadingHTTPServer):
 _FILES = {
     "/": ("dashboard.html", "text/html; charset=utf-8", "no-store"),
     "/schedule": ("schedule.html", "text/html; charset=utf-8", "no-store"),
+    "/config": ("config.html", "text/html; charset=utf-8", "no-store"),
     "/dashboard.css": ("dashboard.css", "text/css; charset=utf-8", "no-store"),
     "/common.js": ("common.js", "text/javascript; charset=utf-8", "no-store"),
     "/autoecology.png": ("autoecology.png", "image/png", "max-age=86400"),
@@ -216,6 +238,14 @@ class _Handler(BaseHTTPRequestHandler):
         if url.path in _FILES:
             name, content_type, cache = _FILES[url.path]
             self._send(200, files("pvpi.services").joinpath(name).read_bytes(), content_type, cache)
+        elif url.path == "/api/config":
+            with self.server.files_lock:
+                try:
+                    self._json(200, self._config_view())
+                except (OSError, ValueError) as err:
+                    self._json(503, {"error": f"Can't read config: {err}"})
+        elif url.path == "/api/clocks":
+            self._json(200, self.server.clocks())
         elif url.path == "/api/live":
             try:
                 readings = self.server.live()
@@ -258,7 +288,12 @@ class _Handler(BaseHTTPRequestHandler):
         body = self._body()
         if body is None:
             return
-        if self.path == "/api/schedules/check":
+        if self.path == "/api/clocks/sync":
+            clocks = self.server.clocks(sync=True)
+            self._json(503 if clocks["error"] else 200, clocks)
+        elif self.path == "/api/services/restart":
+            self._restart_services()
+        elif self.path == "/api/schedules/check":
             self._json(200, check_schedule(self.server.config, body))
         elif self.path == "/api/schedules/active":
             name = body.get("name") if isinstance(body, dict) else None
@@ -281,6 +316,9 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_PUT(self):
+        if self.path == "/api/config":
+            self._save_config()
+            return
         name = self._schedule_name(self.path)
         if not name:
             self._json(404, {"error": "not found"})
@@ -334,11 +372,77 @@ class _Handler(BaseHTTPRequestHandler):
             config.save(config._source)
         self.server.config = config
 
+    def _disk_config(self) -> PvPiConfig:
+        config = self.server.config
+        if config._source is not None:
+            if not config._source.is_file():
+                raise ValueError("The config file is missing")
+            return PvPiConfig.from_file(str(config._source))
+        return config
+
+    def _config_view(self) -> dict:
+        config = self._disk_config()
+        return {
+            "values": config.model_dump(mode="json"),
+            "fields": PvPiConfig.model_json_schema()["properties"],
+            "path": str(config._source) if config._source else None,
+        }
+
+    def _save_config(self) -> None:
+        body = self._body()
+        if body is None:
+            return
+        if not isinstance(body, dict) or not isinstance(body.get("values"), dict):
+            self._json(400, {"error": "Expected config values"})
+            return
+        with self.server.files_lock:
+            try:
+                current = self._disk_config()
+                if current._source is None:
+                    self._json(409, {"error": "Start the dashboard with --config to save settings"})
+                    return
+                if body.get("original") != current.model_dump(mode="json"):
+                    self._json(409, {"error": "The config changed since you opened it. Reload before saving."})
+                    return
+                # Only supplied settings change; schedule selection stays on the Schedule page.
+                updates = body["values"]
+                if "schedule" in updates:
+                    raise ValueError("Choose the active schedule on the Schedule page")
+                updated = PvPiConfig.model_validate({**current.model_dump(mode="json"), **updates})
+                if updated.time_pi2mcu and updated.time_mcu2pi:
+                    raise ValueError("Choose just one startup clock direction")
+                updated._source = current._source
+                updated.load_schedule()  # changed timings/folders must still allow the active schedule
+                updated.save(updated._source)
+                self.server.config = updated
+                self._json(200, self._config_view())
+            except (OSError, ValueError) as err:
+                self._json(400, {"error": str(err)})
+
+    def _restart_services(self) -> None:
+        """Restart the hardware services; reload the dashboard settings without stopping this response."""
+        with self.server.files_lock:
+            try:
+                config = self._disk_config()
+                config.load_schedule()
+                command = ["systemctl", "restart", "pvpi_uart.service", "pvpi_manager.service"]
+                if os.geteuid() != 0:
+                    command = ["sudo", "-n", *command]
+                with self.server._lock:
+                    self.server._drop_client()
+                    self.server._live = None
+                    subprocess.run(command, check=True, capture_output=True, text=True, timeout=30)
+                    self.server.config = config
+                self._json(200, self._config_view())
+            except (OSError, ValueError, subprocess.SubprocessError) as err:
+                detail = err.stderr.strip() if isinstance(err, subprocess.CalledProcessError) and err.stderr else str(err)
+                self._json(503, {"error": f"Couldn't restart the PV Pi services: {detail}"})
+
     def _body(self):
         """The request's JSON, or None after answering 400."""
         try:
             length = int(self.headers.get("Content-Length", 0))
-            if length > MAX_BODY:
+            if not 0 <= length <= MAX_BODY:
                 raise ValueError("too long")
             return json.loads(self.rfile.read(length) or b"null")
         except ValueError as err:
