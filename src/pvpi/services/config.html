@@ -18,6 +18,7 @@ legend { padding: 0 6px; font-weight: 600; }
 .setting input[type="checkbox"] { width: 20px; height: 20px; margin: 4px 0; }
 .setting select { width: 100%; }
 .coords { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.coords[hidden] { display: none; }  /* display: grid would otherwise override hidden */
 .coords label { font-weight: 400; display: flex; flex-direction: column; gap: 3px; }
 button, input, select { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; }
 button { cursor: pointer; }
