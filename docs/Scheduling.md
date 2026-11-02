@@ -10,10 +10,11 @@ The easiest way to create a schedule, is by using the Schedule page on the [dash
 
 ## Schedule files
 
-Each schedule is a JSON file in the `schedules` folder. Your Pi is on whenever any of its rules is on. There are two kinds:
+Each schedule is a JSON file in the `schedules` folder. Your Pi is on whenever any of its rules is on. There are three kinds:
 
 - `daily`: on from one time to another (into the next day if `off` is earlier than `on`)
 - `periodic`: on and off in turn, e.g. 5 minutes on, 5 off, between `start` and `end` (all day if they're the same)
+- `sun`: on and off at sunrise or sunset (see below)
 
 Both take `days`, the days a rule starts on (every day if left out). For example, `schedules/field.json`:
 
@@ -29,6 +30,18 @@ To use it, set `"schedule": "field"` in your [config](Configuration.md). Changes
 The repo comes with a few to start from: `daytime`, `weekdays_office_hours`, `dawn_and_dusk`, `night_only`, `every_10_minutes` and `daytime_duty_cycle`. (Installed with pip? Your `schedules` folder starts empty.)
 
 A schedule is refused if an on time is too short for the Pi to start up (`startup_delay` + 60 s), or an off time too short for it to shut down and power off (`power_off_delay` + 60 s).
+
+## Sunrise and sunset
+
+A `sun` rule turns your Pi on and off with the sun. Set `on` and `off` to `sunrise` or `sunset`:
+
+```json
+{"rules": [{"kind": "sun", "on": "sunrise", "on_offset_mins": -30, "off": "sunset"}]}
+```
+
+That turns on 30 minutes before sunrise and off at sunset. `on_offset_mins` and `off_offset_mins` move the time later, or earlier if negative. Use `"on": "sunset", "off": "sunrise"` to be on overnight.
+
+It needs to know where your Pi is: set `location` in your [config](Configuration.md) to a city (e.g. `Melbourne`) or its coordinates (e.g. `-37.81, 144.96`). Only the 386 cities in [astral](https://astral.readthedocs.io)'s list can be found by name. Sunrise and sunset are worked out on the Pi, so no network is needed.
 
 ## Without a network
 
