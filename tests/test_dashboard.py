@@ -297,3 +297,9 @@ def test_restart_services_applies_saved_settings_and_reports_failure(dashboard, 
     status, answer = get("/api/services/restart", "POST", {})
     assert status == 503 and "permission denied" in answer["error"]
     assert get("/")[0] == 200
+
+
+def test_places_lists_the_cities_a_location_can_name(dashboard):
+    status, places = dashboard()("/api/places")
+    assert status == 200 and ["Melbourne,Australia", "Melbourne, Australia"] in places["cities"]
+    assert len(places["cities"]) > 300

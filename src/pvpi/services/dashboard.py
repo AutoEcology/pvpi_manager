@@ -25,7 +25,7 @@ from pydantic import ValidationError
 from pvpi.client import PvPiClient
 from pvpi.config import SCHEDULE_NAME, PvPiConfig
 from pvpi.power_log import boot_time, read_power
-from pvpi.schedule import Schedule
+from pvpi.schedule import Schedule, cities
 from pvpi.transports import ZmqSerialProxyInterface
 
 _logger = logging.getLogger(__name__)
@@ -246,6 +246,8 @@ class _Handler(BaseHTTPRequestHandler):
                     self._json(503, {"error": f"Can't read config: {err}"})
         elif url.path == "/api/clocks":
             self._json(200, self.server.clocks())
+        elif url.path == "/api/places":
+            self._json(200, {"cities": cities()})
         elif url.path == "/api/live":
             try:
                 readings = self.server.live()

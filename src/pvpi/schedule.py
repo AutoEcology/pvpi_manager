@@ -62,6 +62,12 @@ def _cities():
     return database()
 
 
+def cities() -> list[tuple[str, str]]:
+    """Every city astral knows by name, sorted: (the text `location` takes, the name to show)."""
+    found = {(f"{c.name},{c.region}", f"{c.name}, {c.region}") for c in all_locations(_cities())}
+    return sorted(found, key=lambda pair: pair[1].lower())
+
+
 @lru_cache(maxsize=1024)
 def _sun_event(place: Place, event: str, day: date) -> datetime | None:
     """When `event` ("sunrise" or "sunset") happens on `day`, in the Pi's local time; None where the sun
