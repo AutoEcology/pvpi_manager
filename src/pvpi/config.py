@@ -10,7 +10,7 @@ from pydantic_settings import (
     BaseSettings,
 )
 
-from pvpi.schedule import Schedule
+from pvpi.schedule import Place, Schedule, find_place
 from pvpi.utils import default_uart_port
 
 SCHEDULE_NAME = r"^[A-Za-z0-9_-]+$"
@@ -19,7 +19,8 @@ _REPLACED = ("schedule_time", "shutdown_time", "wakeup_time")
 
 class PvPiConfig(BaseSettings, extra="forbid"):
     uart_port: str = Field(
-        default_factory=default_uart_port, description="The serial port the PV Pi is on (found automatically for Raspberry Pi's)"
+        default_factory=default_uart_port,
+        description="The serial port the PV Pi is on (found automatically for Raspberry Pi's)",
     )
 
     log_period: int = Field(5, description="Minutes between readings in the log", gt=0)  # mins
@@ -44,6 +45,11 @@ class PvPiConfig(BaseSettings, extra="forbid"):
     # The power schedule: a file of on and off times (see pvpi/schedule.py)
     schedule: str | None = Field(
         None, pattern=SCHEDULE_NAME, description="The schedule in use (its file name); empty to stay on all the time"
+    )
+    location: str | None = Field(
+        None,
+        description="Where the Pi is, for sunrise and sunset schedules: a city like Melbourne, or coordinates "
+        "like -37.81, 144.96",
     )
     schedules_dir: Path | None = Field(
         None, description="Where schedule files are kept; empty for a 'schedules' folder next to this config"
@@ -74,7 +80,8 @@ class PvPiConfig(BaseSettings, extra="forbid"):
     # Clocks
     time_pi2mcu: bool = Field(False, description="When the Pi starts, set the PV Pi's clock from the Pi's")
     time_mcu2pi: bool = Field(
-        False, description="When the Pi starts, set its clock from the PV Pi's (use this if your Pi isn't connected to a network)"
+        False,
+        description="When the Pi starts, set its clock from the PV Pi's (use this if your Pi isn't connected to a network)",
     )
 
     # Dashboard
@@ -83,6 +90,7 @@ class PvPiConfig(BaseSettings, extra="forbid"):
     )
 
     _source: Path | None = PrivateAttr(None)  # the file it was read from
+    _place: Place | None = PrivateAttr(None)  # `location` found
 
     @model_validator(mode="before")
     @classmethod
@@ -93,6 +101,11 @@ class PvPiConfig(BaseSettings, extra="forbid"):
                 "in schedules_dir and set schedule to its name (see the README's Scheduling section)"
             )
         return data
+
+    @model_validator(mode="after")
+    def _find_location(self):
+        self._place = find_place(self.location) if self.location else None
+        return self
 
     @model_validator(mode="after")
     def _wakes_above_shutdown(self):
@@ -123,14 +136,18 @@ class PvPiConfig(BaseSettings, extra="forbid"):
     def schedule_path(self, name: str) -> Path:
         return self.schedules_folder / f"{name}.json"
 
+    def with_place(self, schedule: Schedule) -> Schedule:
+        """`schedule`, told where the Pi is, so its sun rules work."""
+        return schedule.at_place(self._place)
+
     def check_schedule(self, schedule: Schedule) -> list[str]:
-        return schedule.problems(self.min_on, self.min_off)
+        return self.with_place(schedule).problems(self.min_on, self.min_off)
 
     def load_schedule(self) -> Schedule:
         """The schedule in use; raises if its file is missing or unworkable."""
         if self.schedule is None:
             return Schedule()
-        schedule = Schedule.load(self.schedule_path(self.schedule))
+        schedule = self.with_place(Schedule.load(self.schedule_path(self.schedule)))
         if problems := self.check_schedule(schedule):
             raise ValueError(f"Schedule '{self.schedule}': " + "; ".join(problems))
         return schedule

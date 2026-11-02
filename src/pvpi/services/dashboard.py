@@ -112,7 +112,7 @@ def check_schedule(config: PvPiConfig, body, now: datetime | None = None) -> dic
     """What the schedule page shows for a schedule: what's wrong with it and its next 24 hours."""
     now = (now or datetime.now()).replace(microsecond=0)
     try:
-        schedule = Schedule.model_validate(body)
+        schedule = config.with_place(Schedule.model_validate(body))
     except ValidationError as err:
         return {"errors": _errors(err), "problems": [], "periods": []}
     alarm = schedule.alarm(now + config.min_off)
@@ -435,7 +435,9 @@ class _Handler(BaseHTTPRequestHandler):
                     self.server.config = config
                 self._json(200, self._config_view())
             except (OSError, ValueError, subprocess.SubprocessError) as err:
-                detail = err.stderr.strip() if isinstance(err, subprocess.CalledProcessError) and err.stderr else str(err)
+                detail = (
+                    err.stderr.strip() if isinstance(err, subprocess.CalledProcessError) and err.stderr else str(err)
+                )
                 self._json(503, {"error": f"Couldn't restart the PV Pi services: {detail}"})
 
     def _body(self):

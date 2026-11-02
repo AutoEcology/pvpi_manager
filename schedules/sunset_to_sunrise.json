@@ -1,0 +1,20 @@
+{
+  "rules": [
+    {
+      "days": [
+        "mon",
+        "tue",
+        "wed",
+        "thu",
+        "fri",
+        "sat",
+        "sun"
+      ],
+      "kind": "sun",
+      "on": "sunset",
+      "on_offset_mins": 0.0,
+      "off": "sunrise",
+      "off_offset_mins": 0.0
+    }
+  ]
+}

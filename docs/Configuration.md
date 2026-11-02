@@ -34,6 +34,7 @@ Editing the file by hand? Run `uv run pvpi restart` afterwards (schedule changes
 | `power_off_on_shutdown` | `true` | Turn the Pi's power off after it shuts down |
 | `power_off_delay` | `20` | Seconds between the shutdown and the power going off (1 to 60) |
 | `schedule` | `null` | The schedule in use (its file name); empty to stay on all the time |
+| `location` | `null` | Where the Pi is, for sunrise and sunset schedules: a city like Melbourne, or coordinates like -37.81, 144.96 |
 | `schedules_dir` | `null` | Where schedule files are kept; empty for a 'schedules' folder next to this config |
 | `log_pvpi_stats` | `true` | Keep CSV logs of the readings and the power log |
 | `data_log_path` | set automatically | Where the logs are kept |

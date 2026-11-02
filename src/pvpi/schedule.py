@@ -5,7 +5,8 @@ A schedule is a JSON file of rules, e.g.:
 
     {"rules": [
         {"kind": "daily", "on": "07:00", "off": "12:00", "days": ["mon", "tue", "wed", "thu", "fri"]},
-        {"kind": "periodic", "on_for_mins": 5, "off_for_mins": 5, "start": "07:00", "end": "19:00"}
+        {"kind": "periodic", "on_for_mins": 5, "off_for_mins": 5, "start": "07:00", "end": "19:00"},
+        {"kind": "sun", "on": "sunrise", "on_offset_mins": -30, "off": "sunset"}
     ]}
 
 The Pi is on whenever any rule says so; a schedule with no rules is always on. Each kind of rule
@@ -13,11 +14,16 @@ only says which periods it turns on in a day, so a new kind needs only its own c
 """
 
 import json
-from datetime import date, datetime, time, timedelta
+import re
+from datetime import date, datetime, time, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from astral import Observer
+from astral.geocoder import all_locations, database, lookup
+from astral.sun import sunrise, sunset
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 Day = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 DAYS: list[Day] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -25,6 +31,52 @@ MAX_ALARM_AHEAD = timedelta(hours=23)  # the wake alarm is a time of day, so it 
 _LOOK_AHEAD_DAYS = 8  # far enough to find the next change of any weekly schedule
 
 Period = tuple[datetime, datetime]
+Place = tuple[float, float]  # latitude, longitude in degrees
+
+
+def find_place(text: str) -> Place:
+    """A place from coordinates ("-37.81, 144.96") or a city in astral's built-in list ("Melbourne",
+    "Portland,USA"). Raises ValueError for anything else."""
+    parts = [part.strip() for part in text.split(",")]
+    if len(parts) == 2:
+        try:
+            lat, lon = float(parts[0]), float(parts[1])
+        except ValueError:
+            pass
+        else:
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                raise ValueError(f"'{text}': latitude is -90 to 90 and longitude -180 to 180")
+            return lat, lon
+    try:
+        found = lookup(",".join(parts), _cities())
+    except KeyError:
+        raise ValueError(
+            f"Unknown place '{text}': only the {len(list(all_locations(_cities())))} cities in astral's list are "
+            "known by name. For anywhere else give coordinates, like -37.81, 144.96"
+        ) from None
+    return found.latitude, found.longitude
+
+
+@lru_cache(maxsize=1)
+def _cities():
+    return database()
+
+
+@lru_cache(maxsize=1024)
+def _sun_event(place: Place, event: str, day: date) -> datetime | None:
+    """When `event` ("sunrise" or "sunset") happens on `day`, in the Pi's local time; None where the sun
+    doesn't rise or set that day. Worked out in UTC for the days either side too, so the event
+    that falls on `day` locally is found wherever the place is."""
+    find = sunrise if event == "sunrise" else sunset
+    for shift in (-1, 0, 1):
+        try:
+            happens = find(Observer(*place), day + timedelta(days=shift), tzinfo=timezone.utc)
+        except ValueError:  # no sunrise or sunset that day (polar summer or winter)
+            continue
+        local = happens.astimezone().replace(tzinfo=None)
+        if local.date() == day:
+            return local
+    return None
 
 
 def _span(day: date, start: time, end: time) -> Period:
@@ -36,11 +88,11 @@ def _span(day: date, start: time, end: time) -> Period:
 class _Rule(BaseModel, extra="forbid"):
     days: list[Day] = Field(default_factory=lambda: list(DAYS), description="The days it starts on")
 
-    def periods(self, day: date) -> list[Period]:
-        """The periods it turns on that start on `day`."""
-        return self._periods(day) if DAYS[day.weekday()] in self.days else []
+    def periods(self, day: date, place: Place | None = None) -> list[Period]:
+        """The periods it turns on that start on `day`, `place` being where the Pi is."""
+        return self._periods(day, place) if DAYS[day.weekday()] in self.days else []
 
-    def _periods(self, day: date) -> list[Period]:
+    def _periods(self, day: date, place: Place | None) -> list[Period]:
         raise NotImplementedError
 
 
@@ -57,7 +109,7 @@ class Daily(_Rule):
             raise ValueError(f"on and off are both {self.on}: a daily rule needs two different times")
         return self
 
-    def _periods(self, day: date) -> list[Period]:
+    def _periods(self, day: date, place: Place | None) -> list[Period]:
         return [_span(day, self.on, self.off)]
 
 
@@ -72,7 +124,7 @@ class Periodic(_Rule):
     start: time = Field(time(0, 0), description="The cycle runs from")
     end: time = Field(time(0, 0), description="The cycle runs until")
 
-    def _periods(self, day: date) -> list[Period]:
+    def _periods(self, day: date, place: Place | None) -> list[Period]:
         begin, finish = _span(day, self.start, self.end)
         on, cycle = timedelta(minutes=self.on_for_mins), timedelta(minutes=self.on_for_mins + self.off_for_mins)
         found = []
@@ -82,7 +134,37 @@ class Periodic(_Rule):
         return found
 
 
-Rule = Annotated[Daily | Periodic, Field(discriminator="kind")]
+class Sun(_Rule):
+    """On from sunrise or sunset to the next sunrise or sunset, where the Pi is (the config's `location`),
+    each moved earlier or later by a number of minutes: e.g. on 30 minutes before sunrise until sunset."""
+
+    kind: Literal["sun"] = "sun"
+    on: Literal["sunrise", "sunset"] = Field(description="Turn on at")
+    on_offset_mins: float = Field(0, description="Minutes after it (negative: before) to turn on")
+    off: Literal["sunrise", "sunset"] = Field(description="Turn off at")
+    off_offset_mins: float = Field(0, description="Minutes after it (negative: before) to turn off")
+
+    @model_validator(mode="after")
+    def _not_empty(self):
+        if self.on == self.off:
+            raise ValueError(f"on and off are both {self.on}: a sun rule needs sunrise and sunset")
+        return self
+
+    def _periods(self, day: date, place: Place | None) -> list[Period]:
+        if place is None:  # Schedule.problems says the location is missing
+            return []
+        start = _sun_event(place, self.on, day)
+        if start is None:
+            return []
+        start += timedelta(minutes=self.on_offset_mins)
+        for end_day in (day, day + timedelta(days=1)):  # the first `off` after the start
+            end = _sun_event(place, self.off, end_day)
+            if end is not None and (end := end + timedelta(minutes=self.off_offset_mins)) > start:
+                return [(start, end)]
+        return []
+
+
+Rule = Annotated[Daily | Periodic | Sun, Field(discriminator="kind")]
 
 
 def _duration(span: timedelta) -> str:
@@ -94,6 +176,7 @@ def _duration(span: timedelta) -> str:
 
 class Schedule(BaseModel, extra="forbid"):
     rules: list[Rule] = Field(default_factory=list, description="On whenever any rule is on; always on with none")
+    _place: Place | None = PrivateAttr(None)  # where the Pi is, for sun rules
 
     @classmethod
     def load(cls, path: Path) -> "Schedule":
@@ -107,6 +190,11 @@ class Schedule(BaseModel, extra="forbid"):
         tmp.write_text(json.dumps(self.model_dump(mode="json"), indent=2) + "\n")
         tmp.replace(path)
 
+    def at_place(self, place: Place | None) -> "Schedule":
+        """Say where the Pi is, so sun rules can work out sunrise and sunset."""
+        self._place = place
+        return self
+
     @property
     def always_on(self) -> bool:
         return not self.rules
@@ -116,7 +204,7 @@ class Schedule(BaseModel, extra="forbid"):
         found = []
         day = start.date() - timedelta(days=1)  # a period that began the day before may still run
         while day <= end.date():
-            found += [p for rule in self.rules for p in rule.periods(day) if p[1] > start and p[0] < end]
+            found += [p for rule in self.rules for p in rule.periods(day, self._place) if p[1] > start and p[0] < end]
             day += timedelta(days=1)
         merged: list[Period] = []
         for begin, finish in sorted(found):
@@ -150,6 +238,8 @@ class Schedule(BaseModel, extra="forbid"):
         down in. Checked over a whole week."""
         if self.always_on:
             return []
+        if self._place is None and any(isinstance(rule, Sun) for rule in self.rules):
+            return ["Sunrise and sunset need a location: set `location` in the config"]
         monday = datetime.combine(date(2024, 1, 1), time(0, 0))  # any Monday
         periods = self.periods(monday - timedelta(days=7), monday + timedelta(days=14))
         if not periods:

@@ -209,7 +209,7 @@ def schedule(name: str | None = None, config: str | None = None):
     if name is None:
         click.echo("No schedule in use: the Pi is always on.")
         return
-    found = Schedule.load(_config.schedule_path(name))
+    found = _config.with_place(Schedule.load(_config.schedule_path(name)))
     now = datetime.now().replace(microsecond=0)
     click.echo(f"Schedule '{name}' ({_config.schedule_path(name)})")
     for problem in _config.check_schedule(found):

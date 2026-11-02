@@ -1,12 +1,13 @@
 """Schedules: when they're on, when they next turn on, the wake alarm, and what's refused."""
 
-from datetime import datetime, time, timedelta
+import time as time_module
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from pvpi.schedule import Schedule
+from pvpi.schedule import Schedule, find_place
 
 MON = datetime(2026, 10, 19)  # a Monday
 
@@ -123,9 +124,54 @@ DEMOS = sorted((Path(__file__).parent.parent / "schedules").glob("*.json"))
 def test_every_demo_schedule_works_with_the_default_config(path):
     from pvpi.config import PvPiConfig
 
-    config = PvPiConfig()
+    config = PvPiConfig(location="Melbourne")  # for the sunrise and sunset demos
     assert config.check_schedule(Schedule.load(path)) == []
 
 
 def test_there_are_demo_schedules():
     assert len(DEMOS) >= 6
+
+
+@pytest.fixture
+def melbourne(monkeypatch):
+    """Times in Melbourne's zone, and its coordinates."""
+    monkeypatch.setenv("TZ", "Australia/Melbourne")
+    time_module.tzset()
+    yield find_place("Melbourne")
+    monkeypatch.undo()
+    time_module.tzset()
+
+
+@pytest.mark.parametrize(
+    "rule, begin, end",
+    [
+        ({"on": "sunrise", "off": "sunset"}, "sunrise", "sunset"),
+        ({"on": "sunset", "off": "sunrise"}, "sunset", "sunrise+1"),  # the night, into the next morning
+        ({"on": "sunrise", "on_offset_mins": -30, "off": "sunset", "off_offset_mins": 15}, "sunrise-30", "sunset+15"),
+    ],
+)
+def test_sun_rules_follow_sunrise_and_sunset(melbourne, rule, begin, end):
+    from zoneinfo import ZoneInfo
+
+    from astral import Observer
+    from astral.sun import sunrise, sunset
+
+    def when(text):  # worked out by astral in Melbourne's zone, without the rule's own conversion
+        event, _, shift = text.replace("-", "+-").partition("+")
+        day = date(2026, 11, 2) + timedelta(days=1 if text == "sunrise+1" else 0)
+        find = sunrise if event == "sunrise" else sunset
+        found = find(Observer(*melbourne), day, tzinfo=ZoneInfo("Australia/Melbourne")).replace(tzinfo=None)
+        return found + timedelta(minutes=int(shift) if shift not in ("", "1") else 0)
+
+    made = schedule({"kind": "sun", **rule}).at_place(melbourne)
+    (found,) = [
+        p for p in made.periods(datetime(2026, 11, 2), datetime(2026, 11, 4)) if p[0].date() == date(2026, 11, 2)
+    ]
+    assert abs(found[0] - when(begin)) < timedelta(minutes=1) and abs(found[1] - when(end)) < timedelta(minutes=1)
+
+
+def test_a_sun_rule_needs_a_location_and_refuses_the_same_event_twice():
+    made = schedule({"kind": "sun", "on": "sunrise", "off": "sunset"})
+    assert "location" in made.problems(timedelta(minutes=1), timedelta(minutes=1))[0]
+    with pytest.raises(ValidationError):
+        schedule({"kind": "sun", "on": "sunrise", "off": "sunrise"})
