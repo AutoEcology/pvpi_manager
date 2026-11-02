@@ -63,8 +63,10 @@ const GROUPS = [
   ["Logging", { log_pvpi_stats: "Log readings and power events", log_period: "Reading interval (minutes)", data_log_path: "Log folder", keep_for_days: "Keep logs (days)", heartbeat_mins: "Power heartbeat (minutes)" }],
   ["Watchdog", { enable_watchdog: "Enable watchdog", watchdog_period_mins: "Watchdog timeout (minutes)" }],
   ["Clocks", { time_pi2mcu: "Set PV Pi time from Raspberry Pi at startup", time_mcu2pi: "Set Raspberry Pi time from PV Pi at startup" }],
+  ["Location", { location: "Location (for sunrise and sunset schedules)" }],
   ["Connection and dashboard", { uart_port: "UART port", schedules_dir: "Schedule folder", full_dashboard: "Show history charts" }],
 ];
+const OPTIONAL_TEXT = ["schedules_dir", "location"];  // empty means not set
 let original, dirty = false, writable = false;
 const inputs = new Map();
 function status(text, bad = false) { $("status").textContent = text; $("status").className = bad ? "bad" : "muted"; }
@@ -87,7 +89,7 @@ function render(data) {
         if (schema.minimum !== undefined) input.min = schema.minimum;
         if (schema.exclusiveMinimum !== undefined && schema.type === "integer") input.min = schema.exclusiveMinimum + 1;
         if (schema.maximum !== undefined) input.max = schema.maximum;
-      } else if (input.type === "text") input.required = key !== "schedules_dir";
+      } else if (input.type === "text") input.required = !OPTIONAL_TEXT.includes(key);
       input.disabled = !writable;
       help.id = input.id + "-help"; input.setAttribute("aria-describedby", help.id);
       help.className = "muted"; help.textContent = schema.description;
@@ -106,7 +108,7 @@ $("reload").onclick = () => { if (!dirty || confirm("Discard the changes not sav
 $("config-form").onsubmit = async event => {
   event.preventDefault();
   const values = {};
-  inputs.forEach((input, key) => { values[key] = input.type === "checkbox" ? input.checked : input.type === "number" ? Number(input.value) : key === "schedules_dir" && !input.value.trim() ? null : input.value; });
+  inputs.forEach((input, key) => { values[key] = input.type === "checkbox" ? input.checked : input.type === "number" ? Number(input.value) : OPTIONAL_TEXT.includes(key) && !input.value.trim() ? null : input.value; });
   if (values.time_pi2mcu && values.time_mcu2pi) { status("Choose just one startup clock direction.", true); return; }
   $("save").disabled = true; $("reload").disabled = true; $("restart").disabled = true;
   // Keep edits steady until the save response arrives.

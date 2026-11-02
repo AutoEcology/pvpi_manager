@@ -95,6 +95,7 @@ ul.plain { margin: 6px 0 0; padding-left: 18px; }
     <div class="actions">
       <button type="button" id="add-daily">+ Daily on and off times</button>
       <button type="button" id="add-periodic">+ Repeating on and off cycle</button>
+      <button type="button" id="add-sun">+ Sunrise and sunset</button>
     </div>
 
     <h2>The next 24 hours</h2>
@@ -166,6 +167,12 @@ const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const NEW_RULE = {
   daily: () => ({ kind: "daily", on: "07:00", off: "19:00", days: [...DAYS] }),
   periodic: () => ({ kind: "periodic", on_for_mins: 5, off_for_mins: 5, start: "00:00", end: "00:00", days: [...DAYS] }),
+  sun: () => ({ kind: "sun", on: "sunrise", on_offset_mins: 0, off: "sunset", off_offset_mins: 0, days: [...DAYS] }),
+};
+const RULE_TITLES = { daily: "daily on and off times", periodic: "repeating on and off cycle", sun: "sunrise and sunset" };
+const RULE_NOTES = {
+  periodic: "On and off in turn, starting each day at the first time. The same two times mean all day.",
+  sun: "Follows sunrise and sunset at the location set on the Config tab. Turning off earlier than on runs into the next day.",
 };
 
 let listed = { active: null, schedules: [] };
@@ -241,6 +248,24 @@ function input(type, value, onchange, attrs = {}) {
   i.addEventListener("input", () => { onchange(type === "number" ? Number(i.value) : i.value); changed(); });
   return i;
 }
+function select(options, value, onchange) {
+  const s = document.createElement("select");
+  for (const [v, text] of options) { const o = document.createElement("option"); o.value = v; o.textContent = text; s.append(o); }
+  s.value = value;
+  s.addEventListener("change", () => { onchange(s.value); changed(); });
+  return s;
+}
+// "Turn on [30] minutes [before] [sunrise]": the rule keeps the offset as signed minutes (negative: before)
+function sunField(label, rule, event, offset) {
+  const part = { mins: Math.abs(rule[offset]), before: rule[offset] < 0 };
+  const store = () => { rule[offset] = (part.before ? -1 : 1) * part.mins; };
+  const l = document.createElement("label");
+  l.append(label,
+    input("number", part.mins, v => { part.mins = v; store(); }, { min: 0, step: "any" }), "minutes",
+    select([["after", "after"], ["before", "before"]], part.before ? "before" : "after", v => { part.before = v === "before"; store(); }),
+    select([["sunrise", "sunrise"], ["sunset", "sunset"]], rule[event], v => { rule[event] = v; }));
+  return l;
+}
 function drawRules() {
   const box = $("rules");
   box.replaceChildren();
@@ -249,7 +274,7 @@ function drawRules() {
     card.className = "card rule";
     const top = document.createElement("div");
     top.className = "top";
-    top.append(`Rule ${n + 1}: ` + (rule.kind === "daily" ? "daily on and off times" : "repeating on and off cycle"),
+    top.append(`Rule ${n + 1}: ` + RULE_TITLES[rule.kind],
       button("Remove", "", () => { rules.splice(n, 1); drawRules(); changed(); }));
     const fields = document.createElement("div");
     fields.className = "fields";
@@ -257,6 +282,8 @@ function drawRules() {
       fields.append(
         field("Turn on at", input("time", hhmm(rule.on), v => rule.on = v)),
         field("Turn off at", input("time", hhmm(rule.off), v => rule.off = v)));
+    } else if (rule.kind === "sun") {
+      fields.append(sunField("Turn on", rule, "on", "on_offset_mins"), sunField("Turn off", rule, "off", "off_offset_mins"));
     } else {
       fields.append(
         field("Minutes on", input("number", rule.on_for_mins, v => rule.on_for_mins = v, { min: 1, step: "any" })),
@@ -266,8 +293,8 @@ function drawRules() {
     }
     const note = document.createElement("div");
     note.className = "muted";
-    note.hidden = rule.kind === "daily";
-    note.textContent = "On and off in turn, starting each day at the first time. The same two times mean all day.";
+    note.hidden = !RULE_NOTES[rule.kind];
+    note.textContent = RULE_NOTES[rule.kind] || "";
     const days = document.createElement("div");
     days.className = "days";
     days.append("Starts on:");
@@ -320,6 +347,7 @@ function li(text) { const l = document.createElement("li"); l.textContent = text
 // ---- Save, use, delete ----
 $("add-daily").onclick = () => { rules.push(NEW_RULE.daily()); drawRules(); changed(); };
 $("add-periodic").onclick = () => { rules.push(NEW_RULE.periodic()); drawRules(); changed(); };
+$("add-sun").onclick = () => { rules.push(NEW_RULE.sun()); drawRules(); changed(); };
 $("save").onclick = async () => {
   const name = editing || $("name").value.trim();
   if (!/^[A-Za-z0-9_-]+$/.test(name)) { status("Give the schedule a name: letters, numbers, - and _", true); return; }
