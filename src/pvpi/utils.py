@@ -28,12 +28,16 @@ def default_uart_port() -> str:
 
     Standard Raspberry Pi models use ``/dev/ttyAMA0`` (PL011 UART).
     Raspberry Pi Zero variants use ``/dev/ttyS0`` (mini UART).
+    A Pi 3 or 4 does too, as Bluetooth has the PL011 UART, unless ``dtoverlay=disable-bt`` gave it
+    back to the GPIO pins, when there's no ``/dev/ttyS0``.
     """
     try:
         with open(_MODEL_PATH) as f:
             model = f.read().lower()
         _logger.debug("Detected board model: %s", model.strip())
         if "zero" in model:
+            return "/dev/ttyS0"
+        if ("raspberry pi 3" in model or "raspberry pi 4" in model) and os.path.exists("/dev/ttyS0"):
             return "/dev/ttyS0"
     except OSError:
         _logger.debug("Could not read %s; falling back to /dev/ttyAMA0", _MODEL_PATH)
