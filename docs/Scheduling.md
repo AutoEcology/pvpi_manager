@@ -4,6 +4,8 @@
 
 A schedule sets the times your Pi is on. In between, the manager shuts it down and sets the PV Pi's wake alarm to boot your device at the set time. With no schedule, your Pi just stays on (and only shuts down when the battery runs low).
 
+On a low battery shutdown, the wake-up alarm is not set and your Pi will reboot once the battery reaches the wake-up voltage. Upon wake up, the schedule is checked and your device either remains on or shuts down depending on the schedule.
+
 The easiest way to create a schedule, is by using the Schedule page on the [dashboard](Services-and-dashboard.md). You can select an existing schedule or create a new one and visualise the next 24 hours.
 
 ![The dashboard's schedule page](images/dashboard_schedule.png)
