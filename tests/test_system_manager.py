@@ -151,3 +151,9 @@ def test_the_power_log_has_the_boot_the_heartbeat_and_the_shutdown(run, monkeypa
         line.split(",")[1:3] for f in (tmp_path / "power").glob("*.csv") for line in f.read_text().splitlines()[1:]
     ]
     assert events[0] == ["boot", ""] and ["running", ""] in events and events[-1] == ["shutdown", "schedule"]
+
+
+def test_a_low_battery_shutdown_sets_no_wake_alarm_so_the_pv_pi_wakes_on_voltage(run):
+    with pytest.raises(Shutdown):
+        run([12.5] * 3, low_bat_volt=12.9, rules=[DAY], now=datetime(2026, 10, 19, 12, 0))  # in an on time
+    assert "set_alarm" not in run.board.calls and "power_off" in run.board.calls

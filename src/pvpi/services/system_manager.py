@@ -201,9 +201,13 @@ def run(config: PvPiConfig):
         # must still shut down.
         if _attempt("stop the watchdog", client.stop_watchdog):
             _logger.info("Watchdog stopped")
-        alarm = watch.get().alarm(datetime.now() + watch.config.min_off - LATE_MARGIN)
-        if alarm is not None and _attempt("set the wake alarm", client.set_alarm, alarm.time()):
-            _logger.info("Alarm set %s", alarm)
+        # The wake alarm only for a schedule shutdown: while an alarm is pending, the PV PI doesn't
+        # wake the Pi when the battery reaches wake_up_volt, so after a low battery it would stay
+        # off until the next on time. Woken in an off time instead, it shuts down again here.
+        if reason == "schedule":
+            alarm = watch.get().alarm(datetime.now() + watch.config.min_off - LATE_MARGIN)
+            if alarm is not None and _attempt("set the wake alarm", client.set_alarm, alarm.time()):
+                _logger.info("Alarm set %s", alarm)
         if config.power_off_on_shutdown and _attempt(
             "schedule the power off", client.power_off, delay_s=config.power_off_delay
         ):
