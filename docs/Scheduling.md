@@ -18,7 +18,7 @@ Each schedule is a JSON file in the `schedules` folder. Your Pi is on whenever a
 - `periodic`: on and off in turn, e.g. 5 minutes on, 5 off, between `start` and `end` (all day if they're the same)
 - `sun`: on and off at sunrise or sunset (see below)
 
-Both take `days`, the days a rule starts on (every day if left out). For example, `schedules/field.json`:
+All three take `days`, the days a rule starts on (every day if left out). For example, `schedules/field.json`:
 
 ```json
 {"rules": [
@@ -29,7 +29,7 @@ Both take `days`, the days a rule starts on (every day if left out). For example
 
 To use it, set `"schedule": "field"` in your [config](Configuration.md). Changes are picked up within 10 seconds, no restart needed.
 
-The repo comes with a few to start from: `daytime`, `weekdays_office_hours`, `dawn_and_dusk`, `night_only`, `every_10_minutes` and `daytime_duty_cycle`. (Installed with pip? Your `schedules` folder starts empty.)
+The repo comes with a few to start from: `daytime`, `weekdays_office_hours`, `dawn_and_dusk`, `night_only`, `every_10_minutes`, `daytime_duty_cycle`, `sunrise_to_sunset` and `sunset_to_sunrise`. (Installed with pip? Your `schedules` folder starts empty.)
 
 A schedule is refused if an on time is too short for the Pi to start up (`startup_delay` + 60 s), or an off time too short for it to shut down and power off (`power_off_delay` + 60 s).
 

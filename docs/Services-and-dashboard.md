@@ -39,6 +39,8 @@ The dashboard user needs permission to run `sudo -n systemctl restart pvpi_uart.
 
 ![The dashboard's Config page](images/dashboard_config.png)
 
+The **Location** setting is for sunrise and sunset schedules. Choose **City** to pick from the list, or **Coordinates** to type in a latitude and longitude.
+
 The **Schedule** tab also shows the PV Pi and Raspberry Pi clocks in the Pi's local time.
 **Sync Raspberry Pi time to PV Pi** copies the Raspberry Pi's clock to the PV Pi, like
 `uv run pvpi set-mcu-clock`. Make sure the Raspberry Pi's time is correct first.
