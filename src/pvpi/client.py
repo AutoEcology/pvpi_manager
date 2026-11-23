@@ -207,6 +207,10 @@ class PvPiClient:
 
     def set_alarm(self, pyt: time):
         """Set Pv PI STM32 alarm using a datetime time object"""
+        # The STM32 manufacturer firmware (ST's HAL RTC driver, built into the PV PI firmware) loses an
+        # alarm for exactly midnight: its clock rollover clears it. So 00:00:00 is sent as 00:00:01.
+        if pyt == time(0, 0, 0):
+            pyt = time(0, 0, 1)
         cmd = f"SET_ALARM,{pyt.hour},{pyt.minute},{pyt.second}".encode()
         resp = self._interface.write(cmd).replace(" ", "")
         _, success = resp.split(",")
