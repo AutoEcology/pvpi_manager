@@ -202,8 +202,15 @@ function drawPower(power, { svg, title, readout }, times) {
     el("text", { x: W / 2, y: H / 2, "text-anchor": "middle" }, svg).textContent = "Nothing in the power log for these days yet";
     return;
   }
-  const hours = on.reduce((sum, [a, b]) => sum + (b - a), 0) / 3600000;
-  title.firstChild.textContent = `Pi on · ${hours.toFixed(1)} h, ${boots.length} start${boots.length === 1 ? "" : "s"}`;
+  const total = list => list.reduce((sum, [a, b]) => sum + (b - a), 0);
+  const hours = total(on) / 3600000;
+  // Up time: the share of the scheduled on time so far that the manager was running. "Now" is the
+  // Pi's: the end of the boot still running (the times are the Pi's, not this browser's).
+  const now = (on.find(([, , how]) => how === "running") || [0, Date.now()])[1];
+  const due = expected.map(([a, b]) => [a, Math.min(b, now)]).filter(([a, b]) => b > a);
+  const met = due.flatMap(([a, b]) => running.map(([c, d]) => [Math.max(a, c), Math.min(b, d)])).filter(([a, b]) => b > a);
+  const upTime = total(due) > 0 ? ` · ${(100 * total(met) / total(due)).toFixed(1)}% up time` : "";
+  title.firstChild.textContent = `Pi on · ${hours.toFixed(1)} h, ${boots.length} start${boots.length === 1 ? "" : "s"}${upTime}`;
   // The same time axis as the readings' charts when there are readings
   const all = [...on, ...running].flatMap(([a, b]) => [a, b]);
   const t0 = times.length ? times[0] : Math.min(...all);
