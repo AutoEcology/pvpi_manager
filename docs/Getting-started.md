@@ -21,10 +21,10 @@ The PV Pi talks to your Pi over the serial port on GPIO 14/15, which is off by d
 3. "Yes" to enabling the serial port hardware
 4. Exit and reboot
 
-pvpi_manager picks the right port for your board: `/dev/ttyS0` on a Pi 3, Pi 4 or Pi Zero, and `/dev/ttyAMA0` on other boards.
+pvpi_manager picks the port on GPIO 14/15 for your board: the one `/dev/serial0` points to, and `/dev/ttyAMA0` on a Pi 5. To use another port, set `uart_port` in the [config](Configuration.md).
 
 - On a Pi 5 you can instead add `dtparam=uart0=on` to `/boot/firmware/config.txt` and reboot.
-- On a Pi 3 or 4, Bluetooth uses `/dev/ttyAMA0`, so pvpi_manager uses `/dev/ttyS0`. If you've added `dtoverlay=disable-bt` to `/boot/firmware/config.txt`, it uses `/dev/ttyAMA0` instead.
+- On a Pi 3, Pi 4 or Pi Zero W, Bluetooth uses `/dev/ttyAMA0`, so GPIO 14/15 is `/dev/ttyS0`. With `dtoverlay=disable-bt` or `dtoverlay=miniuart-bt` in `/boot/firmware/config.txt` it's `/dev/ttyAMA0`, and `/dev/serial0` follows.
 
 ## 3. Turn off the sudo password
 
