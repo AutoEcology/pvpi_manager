@@ -59,7 +59,7 @@ PvPiFaultStateDescriptions = {
 }
 
 
-def _get_interface(timeout_ms: int = 10_000):
+def _get_interface(timeout_ms: int = 10_000, port: str | None = None):
     try:
         interface = ZmqSerialProxyInterface(recv_timeout_ms=timeout_ms)
         _logger.info("Defaulted to ZmqSerialProxyInterface")
@@ -67,7 +67,7 @@ def _get_interface(timeout_ms: int = 10_000):
     except Exception:
         _logger.info("Defaulted to SerialInterface")
         pass
-    return SerialInterface()
+    return SerialInterface(port=port)
 
 
 class PvPiClient:
@@ -89,10 +89,13 @@ class PvPiClient:
         (12.0, 0),
     ]
 
-    def __init__(self, interface: BaseTransportInterface | None = None, timeout_ms: int = 10_000):
+    def __init__(
+        self, interface: BaseTransportInterface | None = None, timeout_ms: int = 10_000, port: str | None = None
+    ):
         """`timeout_ms`: how long each request waits for the UART proxy's answer (when
-        `interface` isn't given and the proxy is running)."""
-        self._interface = interface or _get_interface(timeout_ms)
+        `interface` isn't given and the proxy is running). `port`: the serial port to open when
+        the proxy isn't running (default: the board's UART on GPIO 14 and 15)."""
+        self._interface = interface or _get_interface(timeout_ms, port)
 
     def get_alive(self) -> bool:
         """Return True if PV PI is responsive"""

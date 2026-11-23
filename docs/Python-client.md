@@ -16,7 +16,7 @@ print(client.get_alive())
 print(client.get_battery_voltage())
 ```
 
-`PvPiClient()` goes through the UART proxy when its service is running, and opens the serial port itself when it isn't. See [client.py](../src/pvpi/client.py) for everything it can do.
+`PvPiClient()` goes through the UART proxy when its service is running, and opens the serial port itself when it isn't (`PvPiClient(port="/dev/ttyAMA0")` for a port other than the default). See [client.py](../src/pvpi/client.py) for everything it can do.
 
 A pip-installed `pvpi install` sets up the [services](Services-and-dashboard.md) from that environment too.
 

@@ -4,6 +4,8 @@
 
 Everything below runs as `uv run pvpi <command>` from the pvpi_manager folder. `uv run pvpi --help` lists them, and `--help` after any command explains it.
 
+Commands that talk to the PV Pi go through the UART proxy when its service is running. Otherwise they open the `uart_port` in the services' [config](Configuration.md), or in the config given with `--config`.
+
 | Command | What it does |
 |---|---|
 | `connection-test` | Checks the connection and shows the readings. Also resets the PV Pi to its default settings (see [Getting started](Getting-started.md)) |

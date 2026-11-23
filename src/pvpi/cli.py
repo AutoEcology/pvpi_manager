@@ -18,6 +18,22 @@ from pvpi.transports import SerialInterface
 logger = logging.getLogger("pvpi")
 
 
+config_option = click.option(
+    "--config", type=click.Path(file_okay=True, dir_okay=False), help="The config (default: the services')"
+)
+
+
+def _load_config(config: str | None) -> PvPiConfig:
+    """`--config`, else the config the installed services use; the defaults if there's none."""
+    path = Path(config) if config else systemd_config_path()
+    return PvPiConfig.from_file(str(path)) if path.exists() else PvPiConfig()
+
+
+def _client(config: str | None) -> PvPiClient:
+    """A client on the config's `uart_port` (used when the UART proxy isn't running)."""
+    return PvPiClient(port=_load_config(config).uart_port)
+
+
 @click.group()
 @click.option("--verbose", is_flag=True, help="Enable debug logging.")
 def cli(verbose: bool = False):
@@ -26,8 +42,9 @@ def cli(verbose: bool = False):
 
 
 @cli.command(short_help="Set Pv Pi MCU clock to match current device clock")
-def set_mcu_clock():
-    pvpi = PvPiClient()
+@config_option
+def set_mcu_clock(config: str | None = None):
+    pvpi = _client(config)
     pvpi.get_alive()
     pvpi.set_mcu_time()
     logger.info("Current MCU time: %s", pvpi.get_mcu_time())
@@ -39,8 +56,9 @@ def set_mcu_clock():
     "default settings: its clock from the Pi's clock, MPPT on, charging on, battery temperature monitoring off, "
     "10 A maximum charge current and a 13 V wake-up voltage.",
 )
-def connection_test():
-    client = PvPiClient()
+@config_option
+def connection_test(config: str | None = None):
+    client = _client(config)
     logger.info("Running PV PI function test!")
     logger.info("Checking connection...")
 
@@ -87,8 +105,9 @@ def connection_test():
 
 
 @cli.command(short_help="Get Pv Pi Statistics")
-def get_stats():
-    client = PvPiClient()
+@config_option
+def get_stats(config: str | None = None):
+    client = _client(config)
 
     logger.info("PV PI Battery and PV input...")
     bat_v = client.get_battery_voltage()
@@ -106,69 +125,77 @@ def get_stats():
 
 
 @cli.command(short_help="Get Pv Pi Fault States")
-def get_faults():
-    client = PvPiClient()
+@config_option
+def get_faults(config: str | None = None):
+    client = _client(config)
     logger.info("PV PI Fault state: %s", client.get_fault_states())
 
 
 @cli.command(short_help="Get BQ25756 charging State")
-def get_charge_state():
-    client = PvPiClient()
+@config_option
+def get_charge_state(config: str | None = None):
+    client = _client(config)
     logger.info("BQ25756 Charge state: %s", client.get_charge_state())
 
 
 @cli.command(short_help="Get PV Pi PCB and Firmwware version")
-def get_version():
-    client = PvPiClient()
+@config_option
+def get_version(config: str | None = None):
+    client = _client(config)
     device_name, hw_version, fw_version = client.get_device_version()
     logger.info("Device name: %s, PCB version: %s, Firmware version: %s", device_name, hw_version, fw_version)
 
 
 @cli.command(short_help="Set the maximum input current for the PV Pi")
 @click.option("--current", type=float, required=True, help="Maximum input current in amps (0.4 to 8)")
-def set_input_current(current: float):
-    client = PvPiClient()
+@config_option
+def set_input_current(current: float, config: str | None = None):
+    client = _client(config)
     client.set_max_input_current(current)
     logger.info("PV Pi max input current set to: %s", current)
 
 
 @cli.command(short_help="Set the maximum battery charge current for the PV Pi")
 @click.option("--current", type=float, required=True, help="Maximum battery charge current in amps (0.4 to 10)")
-def set_charge_current(current: float):
-    client = PvPiClient()
+@config_option
+def set_charge_current(current: float, config: str | None = None):
+    client = _client(config)
     client.set_max_charge_current(current)
     logger.info("PV Pi max battery charge current set to: %s", current)
 
 
 @cli.command(short_help="Enable/Disable Pv Pi MPPT")
 @click.option("--enable/--disable", required=True, help="Enable or disable PV Pi MPPT.")
-def set_mppt(enable: bool):
+@config_option
+def set_mppt(enable: bool, config: str | None = None):
     state = "ON" if enable else "OFF"
     logger.info("Setting PV PI MPPT %s", state)
 
-    client = PvPiClient()
+    client = _client(config)
     client.set_mppt_state(state)
     logger.info("PV PI MPPT State set to %s", state)
 
 
 @cli.command(short_help="Enable/Disable Pv Pi Charging")
 @click.option("--enable/--disable", required=True, help="Enable or disable PV Pi Charging.")
-def set_charging(enable: bool):
+@config_option
+def set_charging(enable: bool, config: str | None = None):
     state = "ON" if enable else "OFF"
     logger.info("Setting PV PI Charging %s", state)
 
-    client = PvPiClient()
+    client = _client(config)
     client.set_charge_state(state)
     logger.info("PV PI Charging State set to %s", state)
 
 
 @cli.command(short_help="Enable/Disable BQ25756 Battery Temperature monitoring.")
 @click.option("--enable/--disable", required=True, help="Enable or disable BQ25756 Battery Temperature monitoring.")
-def set_ts(enable: bool):
+@config_option
+def set_ts(enable: bool, config: str | None = None):
     state = "ON" if enable else "OFF"
     logger.info("Setting BQ25756 Temperature monitoring %s", state)
 
-    client = PvPiClient()
+    client = _client(config)
     client.set_ts_state(state)
     logger.info("BQ25756 Temperature monitoring State set to %s", state)
 
@@ -201,10 +228,9 @@ def dashboard(config: str | None = None):
     "now would set. NAME is a schedule file in the config's schedules folder; without it, the schedule in use.",
 )
 @click.argument("name", required=False)
-@click.option("--config", type=click.Path(file_okay=True, dir_okay=False), help="The config (default: the services')")
+@config_option
 def schedule(name: str | None = None, config: str | None = None):
-    path = Path(config) if config else systemd_config_path()
-    _config = PvPiConfig.from_file(str(path)) if path.exists() else PvPiConfig()
+    _config = _load_config(config)
     name = name or _config.schedule
     if name is None:
         click.echo("No schedule in use: the Pi is always on.")

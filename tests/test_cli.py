@@ -33,16 +33,34 @@ class Board:
 
 
 @pytest.fixture
-def invoke(monkeypatch):
+def invoke(monkeypatch, tmp_path):
     board = Board()
-    monkeypatch.setattr(cli, "PvPiClient", lambda: PvPiClient(interface=board))
+    ports = []
+    monkeypatch.setattr(cli, "systemd_config_path", lambda: tmp_path / "services_config.json")
+
+    def client(port=None):
+        ports.append(port)
+        return PvPiClient(interface=board)
+
+    monkeypatch.setattr(cli, "PvPiClient", client)
 
     def go(*args):
         result = CliRunner().invoke(cli.cli, list(args))
-        go.sent = board.sent
+        go.sent, go.ports = board.sent, ports
         return result
 
     return go
+
+
+@pytest.mark.parametrize("services", [True, False])
+def test_commands_use_the_configs_uart_port(invoke, tmp_path, services):
+    from pvpi.config import PvPiConfig
+
+    config = tmp_path / ("services_config.json" if services else "mine.json")
+    PvPiConfig(uart_port="/dev/ttyTEST").save(config)
+    args = ["get-version"] if services else ["get-version", "--config", str(config)]
+    assert invoke(*args).exit_code == 0
+    assert invoke.ports == ["/dev/ttyTEST"]
 
 
 @pytest.mark.parametrize(
